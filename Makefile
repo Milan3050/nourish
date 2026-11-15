@@ -1,5 +1,5 @@
 # Nutrition Intelligence Platform - developer commands
-.PHONY: setup infra index data mcp api web dev test lint eval eval-offline docker clean-db
+.PHONY: setup infra index data retag mcp api web dev test lint eval eval-offline docker clean-db
 
 BACKEND := cd backend &&
 
@@ -18,6 +18,9 @@ data:             ## rebuild data/processed/foods.csv from the raw IFCT + USDA t
 	@test -f data/raw/usda_sr28.sql || (cd /tmp && rm -rf usda-sr28 && git clone --depth 1 https://github.com/Adyg/usdanl-sr28-postgresql usda-sr28 && cp usda-sr28/usda_sr28.sql $(CURDIR)/data/raw/)
 	$(BACKEND) uv run python -m nip.data.ingest_foods --ifct ../data/raw/ifct2017/compositions.csv \
 	  --ifct-groups ../data/raw/ifct2017/groups.csv --usda ../data/raw/usda_sr28.sql --out ../data/processed/foods.csv
+
+retag:            ## re-derive allergen tags in data/processed/foods.csv after a taxonomy change (no download)
+	$(BACKEND) uv run python -m nip.data.ingest_foods --retag ../data/processed/foods.csv
 
 mcp:              ## MCP tool server on :8765
 	$(BACKEND) uv run python -m nip.mcp_server.server

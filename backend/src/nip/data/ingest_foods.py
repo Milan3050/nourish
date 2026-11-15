@@ -122,13 +122,37 @@ def load_usda(sql_path: Path) -> list[dict]:
     return rows
 
 
+def retag(path: Path) -> list[tuple[str, str, list[str]]]:
+    """Re-derive allergen tags on an existing processed table after a taxonomy change, without the raw
+    files. New tags are added to the existing ones, never removed (tagging favours recall)."""
+    with path.open(encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    changed = []
+    for r in rows:
+        old = {a for a in r["allergens"].split("|") if a}
+        new = old | allergens_for(r["name"], r["group"])
+        if new != old:
+            r["allergens"] = "|".join(sorted(new))
+            changed.append((r["code"], r["name"], sorted(new - old)))
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=OUT_COLUMNS)
+        w.writeheader()
+        w.writerows(rows)
+    return changed
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--retag", type=Path, help="re-derive allergen tags on a processed foods.csv in place")
     ap.add_argument("--ifct", type=Path)
     ap.add_argument("--ifct-groups", type=Path)
     ap.add_argument("--usda", type=Path)
     ap.add_argument("--out", type=Path, default=Path("data/processed/foods.csv"))
     a = ap.parse_args()
+    if a.retag:
+        for code, name, added in retag(a.retag):
+            print(f"{code} {name}: +{added}")
+        return
     rows: list[dict] = []
     if a.ifct:
         rows += load_ifct(a.ifct, a.ifct_groups)

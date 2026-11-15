@@ -196,3 +196,11 @@ def test_plan_slot_names_are_normalised():
 
     m = PlanMeal(slot="Evening Snack", name="x", items=[{"food_code": "IN-L003", "grams": 50}])
     assert m.slot == "snack" and m.items[0].food_name == ""
+
+
+def test_ifct_two_word_allergen_names_are_tagged(db):
+    """Regression: IFCT spells peanut 'Ground nut'; it was untagged and reached a peanut-allergic planner."""
+    peanut = UserProfile(region=Region.IN, allergies=["peanut"])
+    assert "peanut" in db.get("IN-H012").allergens
+    assert all(f.code != "IN-H012" for f in db.search("groundnut", Region.IN, 20, peanut))
+    assert not is_allowed(db.get("IN-H017"), UserProfile(allergies=["tree nuts"]))[0]  # pine seeds
