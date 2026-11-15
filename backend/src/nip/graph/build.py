@@ -25,6 +25,7 @@ from nip.graph.state import NIPState
 from nip.graph.supervisor import enforce, fallback_decision, llm_decide
 from nip.security.guard import BLOCKED_RESPONSES, check_input
 from nip.tools.energy import required_missing
+from nip.tools.foods import get_food_db
 
 ESSENTIAL_QUESTIONS = {
     "age": "How old are you?",
@@ -200,9 +201,14 @@ async def meal_planning(state: NIPState) -> dict:
                            "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
     if res.output:
         version = (plans[-1]["version"] + 1) if plans else 1
+        db = get_food_db()
+        days = [d.model_dump() for d in res.output.days]
+        for d in days:  # names come from the food table, not the model
+            for m in d["meals"]:
+                for it in m["items"]:
+                    it["food_name"] = db.get(it["food_code"]).name
         upd["plans"] = [{"version": version, "turn": state.get("turn"), "region": ctx["profile"].get("region", "IN"),
-                         "notes": res.output.notes,
-                         "days": [d.model_dump() for d in res.output.days]}]
+                         "notes": res.output.notes, "days": days}]
         if revising.startswith("\nREVISION"):
             upd["turn_revisions"] = state.get("turn_revisions", 0) + 1
     else:
@@ -251,6 +257,12 @@ async def recommendation(state: NIPState) -> dict:
         else:
             plan_block = (f"The latest plan was NOT approved (verdict {v['verdict']}): {v['summary']}. "
                           "Do not present it.")
+    planner_ran = any(r["agent"] == "meal_planning" and r.get("turn") == state.get("turn")
+                      for r in state.get("agent_runs") or [])
+    if showable is None and planner_ran:
+        plan_block += ("\nMeal planning was attempted this turn but no plan passed validation. Say plainly that "
+                       "you could not produce a safe plan this time and why; do not describe a plan.")
+    ctx["plan_shown"] = showable is not None
     evidence = [{"question": e["question"], "answer": e["answer"], "sufficient": e["sufficient"],
                  "citations": [{"chunk_id": c["chunk_id"], "title": c["title"]} for c in e["citations"]]}
                 for e in ctx["evidence"]]

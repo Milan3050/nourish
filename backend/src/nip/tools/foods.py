@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from nip.data.taxonomy import JAIN_EXCLUDED, alias_terms
+from nip.data.taxonomy import JAIN_EXCLUDED, alias_terms, expand_food_query
 from nip.domain.models import DietPattern, FoodPortion, NutritionTotals, Region, UserProfile
 
 DEFAULT_FOODS_CSV = Path(__file__).resolve().parents[4] / "data" / "processed" / "foods.csv"
@@ -69,10 +69,10 @@ class FoodDB:
     def search(self, query: str, region: Region | str | None = None, limit: int = 10,
                profile: UserProfile | None = None) -> list[Food]:
         """Token-overlap search over food names, filtered by region and by the profile's hard limits."""
-        q = set(_tokens(query))
+        region_value = region.value if isinstance(region, Region) else region
+        q = set(_tokens(expand_food_query(query, region_value)))
         if not q:
             return []
-        region_value = region.value if isinstance(region, Region) else region
         scored: list[tuple[float, Food]] = []
         for f in self.foods:
             if region_value and f.region != region_value:
@@ -151,3 +151,55 @@ def compute_totals(db: FoodDB, items: list[FoodPortion]) -> tuple[NutritionTotal
 @lru_cache
 def get_food_db() -> FoodDB:
     return FoodDB.from_csv()
+
+
+# Scaled as the "protein" group: protein >= 20% of the item's energy and >= 5 g/100 g (so leafy
+# greens, which are protein-rich per kcal but tiny per gram, stay with the other foods).
+PROTEIN_DENSE_SHARE = 0.20
+PROTEIN_DENSE_MIN_G = 5.0
+
+
+def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_g: float,
+                     min_g: float = 10, max_g: float = 400, step_g: float = 5) -> list[FoodPortion]:
+    """Rescale portions so a day's items hit kcal and protein targets, keeping the chosen foods.
+
+    Two scale factors (protein-dense items, everything else) solve the 2x2 system
+        a * kcal_dense + b * kcal_other = kcal ;  a * prot_dense + b * prot_other = protein
+    Items that hit the realistic portion bounds are fixed and the rest re-solved. When the food
+    mix cannot reach both targets, kcal is matched with one factor and the protein gap remains,
+    so the caller can see that a different food mix is needed. Unknown codes are left unchanged.
+    """
+    known = [(i, db.get(it.food_code)) for i, it in enumerate(items)]
+    grams = [it.grams for it in items]
+    fixed: set[int] = {i for i, f in known if f is None}
+    for _ in range(4):
+        free = [(i, f) for i, f in known if i not in fixed and f]
+        if not free:
+            break
+        k_fix = sum(db.get(items[i].food_code).per100g["kcal"] * grams[i] / 100 for i in fixed if known[i][1])
+        p_fix = sum(db.get(items[i].food_code).per100g["protein_g"] * grams[i] / 100 for i in fixed if known[i][1])
+        kt, pt = kcal - k_fix, protein_g - p_fix
+
+        def tot(group):
+            return (sum(f.per100g["kcal"] * grams[i] / 100 for i, f in group),
+                    sum(f.per100g["protein_g"] * grams[i] / 100 for i, f in group))
+        dense = [(i, f) for i, f in free if f.per100g["kcal"] and f.per100g["protein_g"] >= PROTEIN_DENSE_MIN_G
+                 and 4 * f.per100g["protein_g"] / f.per100g["kcal"] >= PROTEIN_DENSE_SHARE]
+        other = [(i, f) for i, f in free if (i, f) not in dense]
+        (kd, pd), (ko, po) = tot(dense), tot(other)
+        det = kd * po - ko * pd
+        a = b = None
+        if dense and other and abs(det) > 1e-9:
+            a, b = (kt * po - ko * pt) / det, (kd * pt - kt * pd) / det
+        if a is None or a <= 0 or b <= 0:  # infeasible mix: match energy only
+            ks = kd + ko
+            a = b = kt / ks if ks > 0 else 1.0
+        new = {i: grams[i] * (a if (i, f) in dense else b) for i, f in free}
+        clamped = {i for i, g in new.items() if g < min_g or g > max_g}
+        for i, g in new.items():
+            grams[i] = min(max(g, min_g), max_g)
+        if not clamped:
+            break
+        fixed |= clamped
+    return [it.model_copy(update={"grams": round(max(step_g, round(g / step_g) * step_g), 1)})
+            for it, g in zip(items, grams, strict=True)]

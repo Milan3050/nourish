@@ -161,3 +161,38 @@ def test_profile_facts_convert_units_and_reject_unstated_numbers():
     guessed = record_profile_facts({}, {"age": 30, "weight_kg": 70, "goal": "make a plan"}, "make me a plan")
     assert guessed["profile"]["age"] is None and guessed["profile"]["weight_kg"] is None
     assert set(guessed["rejected"]) == {"age", "weight_kg", "goal"}
+
+
+# ---- planner tools ---------------------------------------------------------------------------------
+
+def test_scale_portions_hits_targets_with_chosen_foods():
+    from nip.tools.registry import scale_portions
+
+    meals = [{"slot": "breakfast", "name": "Poha with milk", "items": [{"food_code": "IN-A011", "grams": 60},
+                                                                     {"food_code": "IN-L002", "grams": 200}]},
+             {"slot": "lunch", "name": "Moong dal, rice, palak", "items": [
+                 {"food_code": "IN-B010", "grams": 60}, {"food_code": "IN-A015", "grams": 80},
+                 {"food_code": "IN-C033", "grams": 100}]},
+             {"slot": "dinner", "name": "Paneer with roti", "items": [{"food_code": "IN-L003", "grams": 100},
+                                                                    {"food_code": "IN-A019", "grams": 80}]}]
+    res = scale_portions(meals, kcal=2056, protein_g=115)
+    assert abs(res["pct_of_target"]["kcal"] - 100) <= 3 and abs(res["pct_of_target"]["protein_g"] - 100) <= 3
+    codes = [[i["food_code"] for i in m["items"]] for m in res["meals"]]
+    assert codes == [[i["food_code"] for i in m["items"]] for m in meals]
+    assert all(10 <= i["grams"] <= 400 for m in res["meals"] for i in m["items"])
+    low = scale_portions(meals[:1], kcal=2056, protein_g=115)  # poha + milk cannot reach 115 g protein
+    assert "advice" in low
+
+
+def test_food_search_understands_everyday_names():
+    db = get_food_db()
+    assert db.search("moong dal", Region.IN, 1)[0].name == "Green gram, dal"
+    assert db.search("palak", Region.IN, 1)[0].name == "Spinach"
+    assert db.search("chickpeas", Region.US, 1)[0].name.startswith("Chickpeas")
+
+
+def test_plan_slot_names_are_normalised():
+    from nip.agents.specs import PlanMeal
+
+    m = PlanMeal(slot="Evening Snack", name="x", items=[{"food_code": "IN-L003", "grams": 50}])
+    assert m.slot == "snack" and m.items[0].food_name == ""

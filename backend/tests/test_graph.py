@@ -239,3 +239,12 @@ async def test_escalation_triggers_force_screening_before_answer(run):
     final, _, _ = await run(w, "high protein ideas?", profile=w.profile_fields)
     assert [r["agent"] for r in final["agent_runs"]] == ["health_assessment", "recommendation"]
     assert final["health"]["escalation_required"]
+
+
+def test_overrides_are_rechecked_against_all_invariants():
+    from nip.graph.supervisor import Decision, enforce
+
+    state = {"turn": 1, "profile": {"conditions": ["ckd"], "region": "IN"},
+             "agent_runs": [{"turn": 1, "agent": "nutrition_knowledge"}] * 2}
+    nxt, why = enforce(state, Decision(objectives=[], next="nutrition_knowledge", instruction="", reason=""))
+    assert nxt == "health_assessment" and "knowledge" in why and "escalation" in why

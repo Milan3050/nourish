@@ -120,10 +120,32 @@ def _ran_this_turn(state: dict, agent: str) -> int:
     return sum(1 for r in state.get("agent_runs") or [] if r.get("turn") == state.get("turn") and r["agent"] == agent)
 
 
+BUDGET_PREFIX = "budget:"
+
+
 def enforce(state: dict, d: Decision) -> tuple[str, str | None]:
-    """Apply invariants. Returns (next, override_reason or None)."""
+    """Apply invariants until the choice is stable. Returns (next, override_reason or None).
+
+    An override is itself re-checked, so e.g. "knowledge ran twice -> recommendation" still has to
+    pass "escalation needs screening first". Budget overrides are final.
+    """
+    nxt, reasons, seen = d.next, [], {d.next}
+    for _ in range(4):
+        new, why = _enforce_once(state, nxt)
+        if why is None:
+            break
+        if why.startswith(BUDGET_PREFIX):
+            return new, why.removeprefix(BUDGET_PREFIX)
+        reasons.append(why)
+        nxt = new
+        if new in seen:  # two invariants pointing at each other: keep the latest, stop
+            break
+        seen.add(new)
+    return nxt, "; ".join(reasons) or None
+
+
+def _enforce_once(state: dict, nxt: str) -> tuple[str, str | None]:
     s = get_settings()
-    nxt = d.next
     plans, vals = state.get("plans") or [], state.get("validations") or []
     health = state.get("health")
     turn_plan = plans and plans[-1].get("turn") == state.get("turn")
@@ -132,9 +154,9 @@ def enforce(state: dict, d: Decision) -> tuple[str, str | None]:
         vals[-1]["verdict"] == "REJECT"
 
     if state.get("turn_steps", 0) >= s.max_supervisor_steps:
-        return "recommendation", "step budget reached; answering with what is available"
+        return "recommendation", BUDGET_PREFIX + "step budget reached; answering with what is available"
     if state.get("turn_tokens", 0) >= s.max_request_tokens:
-        return "recommendation", "token budget reached; answering with what is available"
+        return "recommendation", BUDGET_PREFIX + "token budget reached; answering with what is available"
     profile = _profile(state)
     health_tries = _ran_this_turn(state, "health_assessment")
     if nxt == "clarify" and not state.get("pending_questions"):

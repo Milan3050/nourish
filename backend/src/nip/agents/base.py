@@ -89,7 +89,9 @@ class GoalAgent:
         async def think(state: AgentRun) -> dict:
             if state["steps"] >= self.max_steps:
                 return {"status": "failed", "feedback": [f"step budget of {self.max_steps} exhausted"]}
-            msg: AIMessage = await model.ainvoke(state["messages"])
+            msg = await model.ainvoke(state["messages"])
+            if not isinstance(msg, AIMessage):  # e.g. ChatMessage when a local server sends an odd role
+                msg = AIMessage(content=str(msg.content or ""), usage_metadata=getattr(msg, "usage_metadata", None))
             tokens = (msg.usage_metadata or {}).get("total_tokens", 0) if hasattr(msg, "usage_metadata") else 0
             update: dict[str, Any] = {"messages": [msg], "steps": state["steps"] + 1,
                                       "tokens": state["tokens"] + tokens}

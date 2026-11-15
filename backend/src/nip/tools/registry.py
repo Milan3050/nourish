@@ -14,14 +14,19 @@ from typing import Any
 from nip.domain.models import FoodPortion, HealthProfile, MealPlan, Region, UserProfile
 from nip.rules.engine import compute_plan_totals, validate_plan
 from nip.tools.energy import assess
-from nip.tools.foods import compute_totals, get_food_db
+from nip.tools.foods import compute_totals, get_food_db, scale_to_targets
 
 
 def search_foods(query: str, region: str, profile: dict | None = None, limit: int = 8) -> dict:
     """Search the region's food table; foods violating the profile's hard constraints are excluded."""
     p = UserProfile(**profile) if profile else None
     foods = get_food_db().search(query, Region(region), limit=min(limit, 20), profile=p)
-    return {"query": query, "region": region, "results": [f.summary() for f in foods]}
+    out = {"query": query, "region": region, "results": [f.summary() for f in foods]}
+    if not foods:
+        out["hint"] = ("No allowed food matched. Search one ingredient by its plain name, e.g. 'green gram dal', "
+                       "'paneer', 'rice raw', 'wheat flour atta', 'spinach' (IN) or 'chicken breast raw', 'oats', "
+                       "'yogurt greek plain', 'broccoli raw' (US). Diet and region filters are already applied.")
+    return out
 
 
 def compute_meal_nutrition(items: list[dict]) -> dict:
@@ -30,6 +35,33 @@ def compute_meal_nutrition(items: list[dict]) -> dict:
                             grams=float(i["grams"])) for i in items]
     totals, unknown = compute_totals(get_food_db(), portions)
     return {"totals": totals.model_dump(), "unknown_codes": unknown}
+
+
+def scale_portions(meals: list[dict], kcal: float, protein_g: float) -> dict:
+    """Rescale one day's portions (keeping the chosen foods) to hit kcal and protein targets exactly.
+
+    `meals` is [{slot, name, items: [{food_code, grams}]}]. Returns the meals with new grams and the
+    day's computed totals. If the foods cannot reach both targets, the protein gap is reported.
+    """
+    db = get_food_db()
+    flat = [(mi, FoodPortion(food_code=it["food_code"], food_name=it.get("food_name") or it["food_code"],
+                             grams=float(it.get("grams") or 100)))
+            for mi, m in enumerate(meals) for it in m.get("items", [])]
+    scaled = scale_to_targets(db, [p for _, p in flat], kcal, protein_g)
+    out = [{**{k: v for k, v in m.items() if k != "items"}, "items": []} for m in meals]
+    for (mi, _), p in zip(flat, scaled, strict=True):
+        f = db.get(p.food_code)
+        out[mi]["items"].append({"food_code": p.food_code, "food_name": f.name if f else p.food_name,
+                                 "grams": p.grams})
+    totals, unknown = compute_totals(db, scaled)
+    t = totals.model_dump()
+    pct = {"kcal": round(100 * t["kcal"] / kcal) if kcal else None,
+           "protein_g": round(100 * t["protein_g"] / protein_g) if protein_g else None}
+    res = {"meals": out, "totals": t, "pct_of_target": pct, "unknown_codes": unknown}
+    if pct["protein_g"] is not None and abs(pct["protein_g"] - 100) > 10:
+        res["advice"] = ("Protein cannot reach the target with these foods; add or swap in a protein-dense "
+                         "food (dal, paneer, soya, eggs, chicken, fish, yogurt) and scale again.")
+    return res
 
 
 def assess_energy(profile: dict) -> dict:
@@ -69,7 +101,7 @@ def search_guidelines(query: str, region: str | None = None, k: int = 5, mode: s
 
 
 TOOLS: dict[str, Callable[..., dict]] = {
-    f.__name__: f for f in (search_foods, compute_meal_nutrition, assess_energy, check_plan,
+    f.__name__: f for f in (search_foods, compute_meal_nutrition, scale_portions, assess_energy, check_plan,
                             plan_day_totals, search_guidelines)
 }
 

@@ -142,3 +142,29 @@ def alias_terms(allergy: str) -> set[str]:
     if a in aliases:
         return set(aliases[a].split("|"))
     return {a}
+
+
+# Everyday names -> the names used in each region's food table, so a planner can search "moong dal"
+# or "palak" and find IFCT's "Green gram, dal" or "Spinach". Word-level and deterministic.
+FOOD_SYNONYMS = {
+    "IN": {
+        "moong": "green gram", "mung": "green gram", "chana": "bengal gram", "chickpea": "bengal gram",
+        "chickpeas": "bengal gram", "besan": "bengal gram flour", "urad": "black gram", "masoor": "lentil",
+        "toor": "red gram", "arhar": "red gram", "tur": "red gram", "rajma": "rajmah", "matar": "peas",
+        "palak": "spinach", "methi": "fenugreek", "aloo": "potato", "gobi": "cauliflower",
+        "baingan": "brinjal", "eggplant": "brinjal", "bhindi": "ladies finger", "okra": "ladies finger",
+        "lauki": "bottle gourd", "doodhi": "bottle gourd", "kheera": "cucumber", "pyaz": "onion",
+        "tamatar": "tomato", "gajar": "carrot", "poha": "rice flakes", "suji": "semolina", "sooji": "semolina",
+        "rava": "semolina", "atta": "wheat flour atta", "maida": "wheat flour refined",
+        "roti": "wheat flour atta", "chapati": "wheat flour atta", "dalia": "wheat bulgur", "nachni": "ragi",
+        "peanut": "groundnut", "peanuts": "groundnut", "mungphali": "groundnut", "badam": "almond",
+        "kela": "banana", "seb": "apple", "doodh": "milk",
+    },
+    "US": {"garbanzo": "chickpeas", "chickpea": "chickpeas", "yoghurt": "yogurt", "curd": "yogurt",
+           "eggs": "egg", "oatmeal": "oats"},
+}
+
+
+def expand_food_query(query: str, region: str | None) -> str:
+    syn = FOOD_SYNONYMS.get(region or "", {})
+    return " ".join(syn.get(w, w) for w in re.findall(r"[a-z0-9]+", query.lower()))

@@ -12,7 +12,7 @@ import re
 from typing import Literal
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from nip.agents.base import Emit, GoalAgent
 from nip.config import get_settings
@@ -235,12 +235,25 @@ def knowledge_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
 
 class PlanItem(BaseModel):
     food_code: str
-    food_name: str
+    food_name: str = Field(default="", description="Optional; filled from the food table.")
     grams: float = Field(gt=0, le=1000)
+
+
+SLOT_ALIASES = {"morning_snack": "mid_morning", "mid_morning_snack": "mid_morning", "afternoon_snack": "snack",
+                "evening_snack": "snack", "snacks": "snack", "supper": "dinner", "brunch": "breakfast"}
 
 
 class PlanMeal(BaseModel):
     slot: Literal["breakfast", "mid_morning", "lunch", "snack", "dinner", "bedtime"]
+
+    @field_validator("slot", mode="before")
+    @classmethod
+    def _slot(cls, v):
+        if isinstance(v, str):
+            v = re.sub(r"[\s-]+", "_", v.strip().lower())
+            return SLOT_ALIASES.get(v, v)
+        return v
+
     name: str = Field(description="Dish name the user will recognise, e.g. 'Moong dal khichdi with curd'.")
     items: list[PlanItem] = Field(min_length=1)
     notes: str = ""
@@ -257,12 +270,16 @@ class PlanSubmission(BaseModel):
 
 
 PLANNER_GOAL = """Build a meal plan that meets the user's daily targets and respects every constraint.
-- Use `search_foods` to find ingredients; it only returns foods from the user's region that respect
-  their allergies, diet pattern and religious rules. Use the exact food_code values it returns.
-- Compose realistic dishes from the user's cuisine out of those ingredients (raw weights in grams).
-- Use `compute_nutrition` on each day's items and adjust portions until kcal and protein are within
-  the tolerance of the targets, then submit. Vary meals across days.
-- If you are revising a rejected plan, fix every listed violation first."""
+You choose the dishes and ingredients; tools do all the arithmetic.
+1. `search_foods` with one plain ingredient name per call ("green gram dal", "paneer", "rice raw",
+   "oats", "chicken breast raw"). It only returns foods from the user's region that respect their
+   allergies, diet pattern and religious rules. Use the exact food_code values it returns.
+2. Compose realistic dishes from the user's cuisine for each meal, with rough starting grams (raw weight).
+   Include a protein-dense food in most meals.
+3. Call `scale_portions` with each day's meals. It rescales the grams to hit the day's kcal and protein
+   targets. If it reports a protein gap, swap in a protein-dense food and scale again.
+4. Submit the scaled meals exactly as returned. Vary dishes across days.
+If you are revising a rejected plan, fix every listed violation first."""
 
 
 def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
@@ -284,6 +301,12 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                                       for k, k2 in (("kcal", "kcal"), ("protein_g", "protein_g"),
                                                     ("carbs_g", "carbs_g"), ("fat_g", "fat_g"))}
         return res
+
+    async def scale_portions(meals: list[dict]) -> dict:
+        """Rescale one day's meals [{slot, name, items: [{food_code, grams}]}] to hit the daily kcal and
+        protein targets. Keeps your foods; returns new grams and the day's totals."""
+        return await be.call("scale_portions", {"meals": meals, "kcal": targets["kcal"],
+                                                "protein_g": targets["protein_g"]})
 
     def check(sub: PlanSubmission) -> list[str]:
         db = get_food_db()
@@ -308,6 +331,7 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         return errs[:12]
 
     tools = [_tool(search_foods, "search_foods", search_foods.__doc__),
+             _tool(scale_portions, "scale_portions", scale_portions.__doc__),
              _tool(compute_nutrition, "compute_nutrition", compute_nutrition.__doc__)]
     return GoalAgent("Meal Planning Agent", PLANNER_GOAL, tools, PlanSubmission, check,
                      max(s.max_agent_steps, 16), emit)
@@ -388,6 +412,9 @@ RECOMMENDATION_GOAL = """Write the user-facing answer to their request from the 
 - If a plan could not be validated, say so honestly and do not present it.
 - You may call `search_guidelines` if you need a citation for a claim."""
 
+# Presenting a plan ("here is your plan", "this 1-day meal plan is designed...") when none was validated.
+CLAIMS_PLAN = re.compile(r"\b(?:here(?:'s| is)|this|your)\s+(?:[\w-]+\s+){0,3}(?:meal\s+)?plan\b"
+                         r"(?!\s+(?:could|couldn't|can't|cannot|was not|wasn't|is not|isn't|failed|needs))", re.I)
 UNIT_NUMBER = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(kcal|calories|g\b|grams|mg\b|µg|mcg)", re.I)
 
 
@@ -440,6 +467,9 @@ def recommendation_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         text = " ".join([sub.headline, sub.summary, *sub.key_points, *sub.tips])
         for why in check_output(text):
             errs.append(f"Not allowed: the text {why}. Rephrase.")
+        if not ctx.get("plan_shown", True) and CLAIMS_PLAN.search(text):
+            errs.append(f"No validated plan is shown to the user, but the text presents one "
+                        f"('{CLAIMS_PLAN.search(text).group(0)}'). Do not describe a plan.")
         ungrounded = ungrounded_numbers(text, known_numbers(ctx))
         if ungrounded:
             errs.append(f"These numbers are not in the context: {ungrounded}. Use context numbers or omit them.")
