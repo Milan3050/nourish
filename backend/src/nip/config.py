@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout_s: float = 120.0
     llm_max_retries: int = 2
+    # How the router and judge get typed output. Ollama's /v1 ignores a forced tool_choice, so
+    # "function_calling" returns empty messages there; "json_schema" uses constrained decoding.
+    llm_structured_method: Literal["json_schema", "function_calling"] = "json_schema"
 
     # --- Embeddings / retrieval ----------------------------------------------------------------
     embeddings_provider: Literal["ollama", "fastembed", "hash"] = "ollama"

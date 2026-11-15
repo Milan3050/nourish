@@ -14,6 +14,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from nip.config import get_settings
 from nip.llm import get_chat_model
 
 
@@ -35,7 +36,7 @@ JUDGE_SYSTEM = "You are a strict evaluator of a nutrition assistant. Judge only 
 
 
 async def _structured(schema, prompt: str):
-    model = get_chat_model("judge").with_structured_output(schema, method="function_calling")
+    model = get_chat_model("judge").with_structured_output(schema, method=get_settings().llm_structured_method)
     return await model.ainvoke([SystemMessage(JUDGE_SYSTEM), HumanMessage(prompt)])
 
 
