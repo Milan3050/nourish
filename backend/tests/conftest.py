@@ -6,6 +6,7 @@ import pytest
 os.environ.setdefault("NIP_ENV", "test")
 os.environ.setdefault("NIP_EMBEDDINGS_PROVIDER", "hash")
 os.environ.setdefault("NIP_TOOL_TRANSPORT", "inprocess")
+os.environ.setdefault("NIP_OTEL_ENDPOINT", "")  # no span export from tests, even when .env enables Phoenix
 
 
 @pytest.fixture(scope="session")
