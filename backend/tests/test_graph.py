@@ -90,7 +90,7 @@ class World:
     def meal(self, messages):
         done = {m.name for m in messages if getattr(m, "name", None)}
         if "search_foods" not in done:
-            return call("search_foods", query="dal")
+            return call("search_foods", ingredients=["dal"])
         brief = next(m.content for m in messages if isinstance(m, HumanMessage))
         targets = json.loads(brief.split("Daily targets: ", 1)[1].split("\nLimits", 1)[0])
         meals = split_meals(solve_day(targets, self.protein_code, self.carb_code, self.extras))

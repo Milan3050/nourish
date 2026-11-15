@@ -271,14 +271,15 @@ class PlanSubmission(BaseModel):
 
 PLANNER_GOAL = """Build a meal plan that meets the user's daily targets and respects every constraint.
 You choose the dishes and ingredients; tools do all the arithmetic.
-1. `search_foods` with one plain ingredient name per call ("green gram dal", "paneer", "rice raw",
-   "oats", "chicken breast raw"). It only returns foods from the user's region that respect their
-   allergies, diet pattern and religious rules. Use the exact food_code values it returns.
+1. `search_foods` with a list of plain ingredient names (one call can look up many). It only returns
+   foods from the user's region that respect their allergies, diet pattern and religious rules.
+   Use the exact food_code values it returns.
 2. Compose realistic dishes from the user's cuisine for each meal, with rough starting grams (raw weight).
    Include a protein-dense food in most meals.
 3. Call `scale_portions` with each day's meals. It rescales the grams to hit the day's kcal and protein
    targets. If it reports a protein gap, swap in a protein-dense food and scale again.
-4. Submit the scaled meals exactly as returned. Vary dishes across days.
+4. Submit with submit_result(days=[{"day": 1, "meals": <meals returned by scale_portions>}, ...]):
+   one entry per day, meals exactly as returned. Vary dishes across days.
 If you are revising a rejected plan, fix every listed violation first."""
 
 
@@ -288,10 +289,17 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
     targets = ctx["health"]["targets"]
     tol = s.macro_tolerance_pct
 
-    async def search_foods(query: str, limit: int = 8) -> dict:
-        """Search allowed foods (per 100 g values) in the user's food table."""
-        return await be.call("search_foods", {"query": query, "region": ctx["profile"]["region"],
-                                              "profile": ctx["profile"], "limit": limit})
+    async def search_foods(ingredients: list[str]) -> dict:
+        """Look up several ingredients at once by plain name, e.g. ["green gram dal", "rice raw", "paneer"].
+        Returns allowed foods (per 100 g values) from the user's food table for each name."""
+        if isinstance(ingredients, str):
+            ingredients = [ingredients]
+        out = {}
+        for q in ingredients[:10]:
+            res = await be.call("search_foods", {"query": q, "region": ctx["profile"]["region"],
+                                                 "profile": ctx["profile"], "limit": 4})
+            out[q] = res["results"] or res.get("hint", "no match")
+        return {"results": out}
 
     async def compute_nutrition(items: list[dict]) -> dict:
         """Exact totals for [{food_code, grams}, ...] and their % of the daily targets."""

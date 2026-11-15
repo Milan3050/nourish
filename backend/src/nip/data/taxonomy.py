@@ -157,7 +157,7 @@ FOOD_SYNONYMS = {
         "tamatar": "tomato", "gajar": "carrot", "poha": "rice flakes", "suji": "semolina", "sooji": "semolina",
         "rava": "semolina", "atta": "wheat flour atta", "maida": "wheat flour refined",
         "roti": "wheat flour atta", "chapati": "wheat flour atta", "dalia": "wheat bulgur", "nachni": "ragi",
-        "peanut": "groundnut", "peanuts": "groundnut", "mungphali": "groundnut", "badam": "almond",
+        "peanut": "ground nut", "peanuts": "ground nut", "mungphali": "ground nut", "groundnut": "ground nut", "badam": "almond",
         "kela": "banana", "seb": "apple", "doodh": "milk",
     },
     "US": {"garbanzo": "chickpeas", "chickpea": "chickpeas", "yoghurt": "yogurt", "curd": "yogurt",

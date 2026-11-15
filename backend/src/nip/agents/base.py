@@ -78,6 +78,7 @@ class GoalAgent:
             description=f"Submit your final {output_model.__name__}. Call once, when your goal is met.",
             args_schema=output_model,
         )
+        self._pending_note: str | None = None
         self.graph = self._build()
 
     def _event(self, kind: str, **data: Any) -> None:
@@ -97,10 +98,13 @@ class GoalAgent:
                                       "tokens": state["tokens"] + tokens}
             if msg.content and isinstance(msg.content, str) and msg.content.strip():
                 self._event("agent_thought", text=msg.content.strip()[:400])
+            left = self.max_steps - update["steps"]
             if not msg.tool_calls:
                 update["messages"].append(HumanMessage(
                     "You did not call a tool. Continue towards your goal by calling a tool, "
                     "or call submit_result if you are done."))
+            elif 0 < left <= 3 and not any(c["name"] == "submit_result" for c in msg.tool_calls):
+                self._pending_note = f"[{left} step(s) left: call submit_result with your best result now.]"
             return update
 
         async def act(state: AgentRun) -> dict:
@@ -108,8 +112,17 @@ class GoalAgent:
             out_msgs: list[ToolMessage] = []
             output = None
             feedback: list[str] = []
+            earlier = _earlier_calls(state["messages"][:-1])
             for call in last.tool_calls:
                 name, args, cid = call["name"], call.get("args") or {}, call["id"]
+                key = _call_key(name, args)
+                if name != "submit_result" and key in earlier:  # small models loop on identical calls
+                    self._event("tool_repeat", tool=name)
+                    out_msgs.append(ToolMessage(json.dumps({
+                        "note": "You already made exactly this call; its result is above. Use it and take the "
+                                "next step towards your goal instead of repeating it."}), tool_call_id=cid, name=name))
+                    continue
+                earlier.add(key)
                 if name == "submit_result":
                     errors = await self._accept(args)
                     if errors:
@@ -137,6 +150,9 @@ class GoalAgent:
                 if len(content) > MAX_TOOL_RESULT_CHARS:
                     content = content[:MAX_TOOL_RESULT_CHARS] + '... [truncated]'
                 out_msgs.append(ToolMessage(content, tool_call_id=cid, name=name))
+            if self._pending_note and out_msgs and output is None:
+                out_msgs[-1].content = f"{out_msgs[-1].content}\n{self._pending_note}"
+            self._pending_note = None
             upd: dict[str, Any] = {"messages": out_msgs, "feedback": feedback}
             if output is not None:
                 upd |= {"output": output, "status": "done"}
@@ -194,6 +210,15 @@ class GoalAgent:
         log.info("agent.finished", agent=self.name, status=status, steps=final["steps"], ms=ms,
                  tokens=final["tokens"])
         return AgentResult(self.name, status, output, final["steps"], final["tokens"], ms, err, final["messages"])
+
+
+def _call_key(name: str, args: dict) -> str:
+    return name + json.dumps(args, sort_keys=True, default=str)
+
+
+def _earlier_calls(messages: list[AnyMessage]) -> set[str]:
+    return {_call_key(c["name"], c.get("args") or {}) for m in messages if isinstance(m, AIMessage)
+            for c in m.tool_calls or []}
 
 
 def _preview(args: dict) -> dict:

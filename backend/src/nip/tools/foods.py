@@ -39,8 +39,24 @@ class Food:
         }
 
 
+# Words marking a processed or derived product; such foods rank lower unless the query names them.
+PROCESSED_TERMS = frozenset({"oil", "soup", "flour", "juice", "candy", "candie", "sauce", "fried", "canned",
+                             "sweetened", "powder", "mix", "babyfood", "beverage", "fast", "snack", "dessert",
+                             "mushroom", "chip", "cracker", "bar", "dressing", "sandwich", "pie", "cake"})
+
+
+def _singular(w: str) -> str:
+    if len(w) > 4 and w.endswith(("oes", "ches", "shes")):
+        return w[:-2]  # potatoes, peaches
+    if len(w) > 3 and w.endswith("ies"):
+        return w[:-3] + "y"  # berries
+    if len(w) > 3 and w.endswith("s") and not w.endswith(("ss", "us")):
+        return w[:-1]  # bananas, apples, lentils (not "hummus", "grass")
+    return w
+
+
 def _tokens(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+    return [_singular(w) for w in re.findall(r"[a-z0-9]+", text.lower())]
 
 
 class FoodDB:
@@ -83,8 +99,12 @@ class FoodDB:
                 continue
             if profile and not is_allowed(f, profile)[0]:
                 continue
-            # Prefer short, generic names ("Rice, raw" over "Rice, ... with butter, frozen").
+            # Prefer the food itself: names that start with a queried word ("Almonds" over "Oil, almond"),
+            # unprocessed forms unless asked for, then short generic names.
+            head = _tokens(f.name.split(",")[0])
             score = hit / len(q) - 0.01 * len(toks)
+            score += 0.3 if head and head[0] in q else 0
+            score -= 0.4 * len((toks & PROCESSED_TERMS) - q)
             scored.append((score, f))
         scored.sort(key=lambda s: -s[0])
         return [f for _, f in scored[:limit]]

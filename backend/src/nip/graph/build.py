@@ -27,6 +27,16 @@ from nip.security.guard import BLOCKED_RESPONSES, check_input
 from nip.tools.energy import required_missing
 from nip.tools.foods import get_food_db
 
+# Example ingredient names that exist in each region's table (search vocabulary for the planner).
+STAPLES = {
+    "IN": "green gram dal, red gram dal, bengal gram whole, rajmah, soya bean, paneer, milk cow, egg poultry, "
+          "chicken, rice raw milled, wheat flour atta, rice flakes, ragi, semolina, spinach, cauliflower, "
+          "bottle gourd, ladies finger, tomato, onion, banana, apple, ground nut, almond",
+    "US": "chicken breast raw, egg whole raw, yogurt greek plain, milk reduced fat, tofu raw firm, salmon raw, "
+          "beans black, chickpeas, lentils raw, oats, rice brown cooked, bread whole-wheat, pasta whole-wheat, "
+          "potato raw, broccoli raw, spinach raw, banana raw, apple raw, peanut butter, almonds",
+}
+
 ESSENTIAL_QUESTIONS = {
     "age": "How old are you?",
     "sex": "What is your sex (male or female)? It changes the energy equation.",
@@ -194,7 +204,8 @@ async def meal_planning(state: NIPState) -> dict:
     brief = (_common_brief(state) +
              f"\nProfile: {_j(ctx['profile'])}\nDaily targets: {_j(h['targets'])}\nLimits: {_j(h['limits'])}\n"
              f"Risk flags: {[f['code'] for f in h['risk_flags']]}\nMeals per day: {ctx['profile'].get('meals_per_day', 3)}\n"
-             f"Relevant evidence: {_j(evidence)}\nDefault to 3 days unless the user asked for a different number (max 7)."
+             f"Relevant evidence: {_j(evidence)}\nDefault to 3 days unless the user asked for a different number (max 7).\n"
+             f"Staples in this food table: {STAPLES.get(ctx['profile'].get('region', 'IN'), '')}"
              + revising)
     res = await specs.planner_agent(ctx, emit).run(brief)
     upd: dict[str, Any] = {"agent_runs": [_run_record(state, "meal_planning", res)],
