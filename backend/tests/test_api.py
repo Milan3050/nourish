@@ -7,7 +7,7 @@ import pytest
 
 from nip.llm import set_model_override
 from tests.scripted import ScriptedChatModel
-from tests.test_graph import veg_world
+from tests.test_graph import VEG_PROFILE, veg_world
 
 
 @pytest.fixture
@@ -35,7 +35,7 @@ async def test_profile_and_stream(client):
     h = {"Authorization": f"Bearer {tok}"}
     bad = await client.put("/api/profile", json={"age": 500}, headers=h)
     assert bad.status_code == 422
-    ok = await client.put("/api/profile", json={"region": "IN", "diet_pattern": "vegetarian"}, headers=h)
+    ok = await client.put("/api/profile", json={**VEG_PROFILE, "allergies": []}, headers=h)
     assert ok.status_code == 200
     set_model_override(ScriptedChatModel(policy=veg_world()))
     events = []

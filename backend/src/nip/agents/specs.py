@@ -40,8 +40,9 @@ class HealthSubmission(BaseModel):
 
 HEALTH_GOAL = """Establish an accurate, safe health profile for this user so other agents can plan for them.
 1. Record any facts the user stated (age, sex, height, weight, activity, goal, diet pattern, allergies,
-   conditions, medications, pregnancy, region...) with `update_profile`. Convert units (lb->kg, ft/in->cm).
-   Only record what the user actually said; never invent values.
+   conditions, medications, pregnancy, region...) with `update_profile`, in the user's own units
+   (weight_lb, height_ft + height_in): the tool converts them. Only record what the user actually said;
+   values the user did not state are rejected.
 2. Call `assess_energy` to get energy needs, targets, limits and risk flags from the deterministic calculator.
 3. If essentials are missing, do not guess: submit profile_complete=false with 1-3 short questions.
 4. Add risk flags the calculator cannot see from the user's words (e.g. signs of disordered eating:
@@ -49,23 +50,96 @@ HEALTH_GOAL = """Establish an accurate, safe health profile for this user so oth
 5. You may use `search_guidelines` when a condition needs context."""
 
 
+class ProfileFacts(BaseModel):
+    """Facts the user stated, as flat optional fields. Omit anything the user did not say.
+
+    Enums are plain strings here so one bad value is reported per field instead of failing the call.
+    """
+    age: int | None = None
+    sex: str | None = Field(default=None, description="male | female")
+    height_cm: float | None = None
+    height_ft: float | None = Field(default=None, description="Feet part when the user gave feet/inches")
+    height_in: float | None = Field(default=None, description="Inches part (or total inches)")
+    weight_kg: float | None = None
+    weight_lb: float | None = Field(default=None, description="Use when the user gave pounds")
+    target_weight_kg: float | None = None
+    target_weight_lb: float | None = None
+    timeline_weeks: int | None = None
+    activity: str | None = Field(default=None, description="sedentary | light | moderate | active | very_active")
+    goal: str | None = Field(default=None, description="lose_weight | maintain | gain_muscle | gain_weight | "
+                                                       "manage_condition | general_health")
+    region: str | None = Field(default=None, description="IN | US")
+    diet_pattern: str | None = Field(default=None, description="omnivore | eggetarian | vegetarian | vegan | "
+                                                               "pescatarian | jain")
+    religious_rules: list[str] | None = Field(default=None, description="halal | kosher | no_beef | no_pork")
+    allergies: list[str] | None = None
+    intolerances: list[str] | None = None
+    dislikes: list[str] | None = None
+    conditions: list[str] | None = None
+    medications: list[str] | None = None
+    pregnant: bool | None = None
+    breastfeeding: bool | None = None
+    meals_per_day: int | None = None
+    budget: str | None = Field(default=None, description="low | medium | high")
+    cuisine_preferences: list[str] | None = None
+
+
+# Numeric facts that must be traceable to the user's own words (or the stored profile).
+GROUNDED_NUMBERS = ("age", "height_cm", "height_ft", "height_in", "weight_kg", "weight_lb",
+                    "target_weight_kg", "target_weight_lb", "timeline_weeks")
+LB_TO_KG = 0.45359237
+
+
+def _stated(value: float, text_numbers: set[float]) -> bool:
+    return any(abs(value - n) <= 0.51 for n in text_numbers)
+
+
+def record_profile_facts(profile: dict, facts: dict, user_text: str) -> dict:
+    """Deterministically merge stated facts: unit conversion, grounding and per-field validation.
+
+    Returns {"profile", "recorded", "rejected"}. A number the user never said is rejected, so the
+    model cannot fill gaps in the profile with plausible guesses.
+    """
+    text_nums = {float(m) for m in re.findall(r"\d+(?:\.\d+)?", user_text)}
+    text_nums |= {float(v) for v in profile.values() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    facts = {k: v for k, v in facts.items() if v not in (None, "", [])}
+    rejected: dict[str, str] = {}
+    for k in GROUNDED_NUMBERS:
+        if k in facts and not _stated(float(facts[k]), text_nums):
+            rejected[k] = (f"{facts.pop(k)} is not a number the user stated. Pass values in the user's own units "
+                          "(weight_lb, height_ft/height_in); if they did not say it, ask instead of guessing")
+    if "height_ft" in facts or "height_in" in facts:
+        facts["height_cm"] = round(facts.pop("height_ft", 0) * 30.48 + facts.pop("height_in", 0) * 2.54, 1)
+    for unit in ("weight", "target_weight"):
+        if f"{unit}_lb" in facts:
+            facts[f"{unit}_kg"] = round(facts.pop(f"{unit}_lb") * LB_TO_KG, 1)
+    merged, recorded = {**profile}, []
+    for k, v in facts.items():
+        if k == "sex" and isinstance(v, str):
+            v = {"m": "male", "f": "female", "man": "male", "woman": "female"}.get(v.lower(), v.lower())
+        if isinstance(merged.get(k), list) and isinstance(v, list):
+            v = sorted({*merged[k], *v})
+        trial = {**merged, k: v}
+        try:
+            UserProfile.model_validate(trial)
+        except Exception as e:
+            msg = e.errors()[0]["msg"] if hasattr(e, "errors") else str(e)
+            rejected[k] = f"invalid value {v!r}: {msg}"[:200]
+            continue
+        merged, recorded = trial, [*recorded, k]
+    return {"profile": UserProfile.model_validate(merged).model_dump(mode="json"), "recorded": recorded,
+            "rejected": rejected}
+
+
 def health_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
     be = get_backend()
 
-    async def update_profile(fields: dict) -> dict:
-        """Merge stated facts into the user profile. Keys are UserProfile fields."""
-        merged = {**ctx["profile"]}
-        for k, v in fields.items():
-            if k in UserProfile.model_fields and k != "user_id" and v not in (None, "", []):
-                if isinstance(merged.get(k), list) and isinstance(v, list):
-                    v = sorted({*merged[k], *v})
-                merged[k] = v
-        try:
-            p = UserProfile.model_validate(merged)
-        except Exception as e:
-            return {"ok": False, "error": str(e)[:400]}
-        ctx["profile"] = p.model_dump(mode="json")
-        return {"ok": True, "profile": ctx["profile"]}
+    async def update_profile(**facts) -> dict:
+        """Record facts the user stated. Pass only fields the user actually gave; never guess values.
+        Give pounds as weight_lb and feet/inches as height_ft + height_in; the tool converts units."""
+        res = record_profile_facts(ctx["profile"], facts, ctx.get("user_text", ""))
+        ctx["profile"] = res["profile"]
+        return {"ok": not res["rejected"], **res}
 
     async def assess_energy() -> dict:
         """Compute BMR, TDEE, macro targets, nutrient limits and risk flags for the current profile."""
@@ -86,7 +160,8 @@ def health_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         return errs
 
     tools = [
-        _tool(update_profile, "update_profile", update_profile.__doc__),
+        StructuredTool.from_function(coroutine=update_profile, name="update_profile",
+                                     description=update_profile.__doc__, args_schema=ProfileFacts),
         _tool(assess_energy, "assess_energy", assess_energy.__doc__),
         _tool(search_guidelines, "search_guidelines", search_guidelines.__doc__),
     ]
@@ -102,7 +177,7 @@ class EvidenceAnswer(BaseModel):
     question: str
     answer: str = Field(description="2-4 sentences, only what the cited passages support.")
     cited_chunk_ids: list[str] = Field(default=[], description="chunk_id values from search results.")
-    sufficient: bool = Field(description="False if the retrieved passages do not answer the question.")
+    sufficient: bool = Field(default=True, description="False if the retrieved passages do not answer the question.")
 
 
 class KnowledgeSubmission(BaseModel):

@@ -82,7 +82,7 @@ class World:
     def health(self, messages):
         done = {m.name for m in messages if getattr(m, "name", None)}
         if "update_profile" not in done:
-            return call("update_profile", fields=self.profile_fields)
+            return call("update_profile", **self.profile_fields)
         if "assess_energy" not in done:
             return call("assess_energy")
         return call("submit_result", profile_complete=True, rationale="ok")
@@ -127,12 +127,13 @@ def run(retriever, monkeypatch):
 
     monkeypatch.setattr(registry, "_retriever", lambda: retriever)
 
-    async def _run(world, message, thread="t1", graph=None):
+    async def _run(world, message, thread="t1", graph=None, profile=None):
         set_model_override(ScriptedChatModel(policy=world))
         g = graph or build_graph(InMemorySaver())
         events = []
         cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 80}
-        async for mode, chunk in g.astream({"request": message}, cfg, stream_mode=["custom", "values"]):
+        inp = {"request": message} | ({"profile": profile} if profile else {})  # profile = onboarding form
+        async for mode, chunk in g.astream(inp, cfg, stream_mode=["custom", "values"]):
             if mode == "custom":
                 events.append(chunk)
             else:
@@ -163,7 +164,7 @@ async def test_full_plan_flow(run):
 async def test_guard_forces_validation_before_answer(run):
     w = veg_world()
     w.supervisor_script = ["health_assessment", "meal_planning", "recommendation"]  # tries to skip validation
-    final, events, _ = await run(w, "1-day vegetarian plan please")
+    final, events, _ = await run(w, "1-day vegetarian plan please", profile=VEG_PROFILE)
     overrides = [d for d in final["decisions"] if d["override"]]
     assert overrides and overrides[0]["next"] == "validation"
     assert final["validations"][-1]["verdict"] == "PASS"
@@ -174,7 +175,7 @@ async def test_validator_rejection_triggers_revision(run):
               protein_code="US-16126", carb_code="US-20045", extras=[("US-01117", 150)])
     gf = get_food_db().search("grapefruit raw", Region.US)[0]
     w.first_plan_extra = [{"food_code": gf.code, "food_name": gf.name, "grams": 1}]
-    final, _, _ = await run(w, "1-day plan, I'm on simvastatin")
+    final, _, _ = await run(w, "1-day plan, I'm on simvastatin", profile=w.profile_fields)
     verdicts = [v["verdict"] for v in final["validations"]]
     assert verdicts[0] == "REJECT" and verdicts[-1] == "PASS"
     assert any(v["rule_id"] == "grapefruit_statin" for v in final["validations"][0]["violations"])
@@ -184,7 +185,7 @@ async def test_validator_rejection_triggers_revision(run):
 async def test_escalation_blocks_planning(run):
     w = World({**VEG_PROFILE, "conditions": ["CKD stage 3"]}, "IN-L003", "IN-A015", [])
     w.supervisor_script = ["health_assessment", "meal_planning"]
-    final, _, _ = await run(w, "I have kidney disease, give me a high protein plan")
+    final, _, _ = await run(w, "I have kidney disease, give me a high protein plan", profile=w.profile_fields)
     assert not final.get("plans")
     assert any("escalation" in (d["override"] or "") for d in final["decisions"])
     assert final["recommendation"]["key_points"][0].startswith("Because of your health situation")
@@ -210,8 +211,31 @@ async def test_crisis_message_gets_support_response(run):
 
 async def test_multi_turn_keeps_profile(run):
     w = veg_world()
-    final, _, g = await run(w, "1-day plan please", thread="mt")
+    final, _, g = await run(w, "1-day plan please", thread="mt", profile=VEG_PROFILE)
     w.supervisor_script = ["recommendation"]
     final2, _, _ = await run(w, "thanks! what's my calorie target?", thread="mt", graph=g)
     assert final2["profile"]["weight_kg"] == 80
     assert final2["turn"] == 2 and final2["status"] == "answered"
+
+
+async def test_unstated_body_numbers_are_not_recorded(run):
+    w = veg_world()  # the scripted health agent "records" 30 y / 175 cm / 80 kg the user never gave
+    final, events, _ = await run(w, "Make me a meal plan")
+    assert final["status"] == "clarifying"
+    assert final["profile"].get("weight_kg") is None and not final.get("plans")
+    assert any("weight" in q for q in final["pending_questions"])
+
+
+async def test_complete_profile_is_assessed_not_clarified(run):
+    w = veg_world()
+    w.supervisor_script = ["clarify", "meal_planning", "validation", "recommendation"]
+    final, _, _ = await run(w, "1-day plan please", profile=VEG_PROFILE)
+    assert final["decisions"][0]["next"] == "health_assessment" and final["status"] == "answered"
+
+
+async def test_escalation_triggers_force_screening_before_answer(run):
+    w = World({**VEG_PROFILE, "conditions": ["ckd"]}, "IN-L003", "IN-A015", [])
+    w.supervisor_script = ["recommendation", "recommendation"]
+    final, _, _ = await run(w, "high protein ideas?", profile=w.profile_fields)
+    assert [r["agent"] for r in final["agent_runs"]] == ["health_assessment", "recommendation"]
+    assert final["health"]["escalation_required"]

@@ -74,6 +74,20 @@ def required_missing(p: UserProfile) -> list[str]:
     return missing
 
 
+def escalation_triggers(p: UserProfile) -> list[str]:
+    """Escalation causes visible from stated facts alone, before any energy estimate is possible."""
+    found = []
+    if p.age is not None and p.age < 18:
+        found.append("minor")
+    if p.pregnant or p.breastfeeding:
+        found.append("pregnancy_lactation")
+    if _has(KIDNEY_TERMS, p.conditions):
+        found.append("kidney_disease")
+    if "t1d" in p.conditions or any("type 1" in c for c in p.conditions):
+        found.append("type1_diabetes")
+    return found
+
+
 def assess(p: UserProfile) -> HealthProfile:
     """Compute energy needs, macro targets, nutrient limits and risk flags for a profile.
 
@@ -156,7 +170,7 @@ def assess(p: UserProfile) -> HealthProfile:
         limits.added_sugar_g_max = 25
         flags.append(RiskFlag(code="diabetes", severity="warning",
                               message="Prefer low-glycaemic carbohydrates; limit added sugar to 25 g/day."))
-        if "t1d" in p.conditions or "type 1 diabetes" in p.conditions:
+        if "type1_diabetes" in escalation_triggers(p):
             escalate = True
             flags.append(RiskFlag(code="type1_diabetes", severity="critical",
                                   message="Type 1 diabetes: carbohydrate changes affect insulin dosing."))

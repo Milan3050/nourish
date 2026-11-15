@@ -145,3 +145,19 @@ def test_escalation_verdict_for_pregnancy(db):
     p = base_profile(sex=Sex.female, pregnant=True)
     report = validate_plan(db, p, assess(p), _plan([[("IN-A015", 100)]], db))
     assert report.verdict == "ESCALATE"
+
+
+# ---- profile facts (health agent's update_profile) -------------------------------------------------
+
+def test_profile_facts_convert_units_and_reject_unstated_numbers():
+    from nip.agents.specs import record_profile_facts
+
+    text = "I'm a 34 year old woman, 5ft 4in, 150 lb"
+    res = record_profile_facts({}, {"age": 34, "sex": "woman", "height_ft": 5, "height_in": 4,
+                                    "weight_lb": 150, "goal": "lose_weight"}, text)
+    p = res["profile"]
+    assert (p["age"], p["sex"], p["height_cm"], p["weight_kg"]) == (34, "female", 162.6, 68.0)
+    assert not res["rejected"]
+    guessed = record_profile_facts({}, {"age": 30, "weight_kg": 70, "goal": "make a plan"}, "make me a plan")
+    assert guessed["profile"]["age"] is None and guessed["profile"]["weight_kg"] is None
+    assert set(guessed["rejected"]) == {"age", "weight_kg", "goal"}

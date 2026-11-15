@@ -20,10 +20,18 @@ from langgraph.graph import END, START, StateGraph
 
 from nip.agents import specs
 from nip.agents.base import AgentResult
-from nip.domain.models import Citation, Recommendation, RiskFlag
+from nip.domain.models import Citation, Recommendation, RiskFlag, UserProfile
 from nip.graph.state import NIPState
 from nip.graph.supervisor import enforce, fallback_decision, llm_decide
 from nip.security.guard import BLOCKED_RESPONSES, check_input
+from nip.tools.energy import required_missing
+
+ESSENTIAL_QUESTIONS = {
+    "age": "How old are you?",
+    "sex": "What is your sex (male or female)? It changes the energy equation.",
+    "height_cm": "How tall are you (cm, or feet and inches)?",
+    "weight_kg": "What is your current weight (kg or lb)?",
+}
 
 log = structlog.get_logger("nip.graph")
 
@@ -120,6 +128,7 @@ def _common_brief(state: NIPState) -> str:
 async def health_assessment(state: NIPState) -> dict:
     emit, ctx = _writer(), _ctx(state)
     history = [h["content"] for h in (state.get("history") or [])[-6:] if h["role"] == "user"]
+    ctx["user_text"] = "\n".join([*history, state.get("request", "")])
     brief = (_common_brief(state) + f"\nEarlier user messages: {_j(history[:-1])}\n"
              f"Current profile: {_j(ctx['profile'])}\nSafety flags from the input guard: {state.get('input_flags')}")
     res = await specs.health_agent(ctx, emit).run(brief)
@@ -143,6 +152,10 @@ async def health_assessment(state: NIPState) -> dict:
         upd["pending_questions"] = []
     if sub and not sub.profile_complete:
         upd["pending_questions"] = sub.questions_for_user
+    if not ctx.get("assessment") and not upd.get("pending_questions"):
+        missing = required_missing(UserProfile.model_validate(ctx["profile"]))
+        if missing:  # the agent failed without asking: ask for exactly what the calculator needs
+            upd["pending_questions"] = [ESSENTIAL_QUESTIONS[f] for f in missing]
     return upd
 
 
@@ -160,7 +173,7 @@ async def nutrition_knowledge(state: NIPState) -> dict:
         for it in res.output.items:
             cits = [Citation(**ctx["retrieved"][c]).model_dump() for c in it.cited_chunk_ids if c in ctx["retrieved"]]
             items.append({"question": it.question, "answer": it.answer, "citations": cits,
-                          "sufficient": it.sufficient})
+                          "sufficient": it.sufficient and bool(cits), "turn": state.get("turn")})
         upd["evidence"] = items
     return upd
 
