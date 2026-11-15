@@ -1,0 +1,59 @@
+[project]
+name = "nip"
+version = "0.1.0"
+description = "Nutrition Intelligence Platform: goal-driven multi-agent nutrition recommendations with agentic RAG"
+requires-python = ">=3.11"
+dependencies = [
+  "langgraph>=0.4",
+  "langgraph-checkpoint-postgres>=2.0",
+  "langchain-core>=0.3",
+  "langchain-openai>=0.3",
+  "langchain-mcp-adapters>=0.1",
+  "mcp>=1.9",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "psycopg[binary,pool]>=3.2",
+  "pgvector>=0.3",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "sse-starlette>=2.1",
+  "structlog>=24.1",
+  "pyyaml>=6.0",
+  "httpx>=0.27",
+  "pyjwt>=2.8",
+  "opentelemetry-sdk>=1.25",
+  "opentelemetry-exporter-otlp-proto-http>=1.25",
+  "openinference-instrumentation-langchain>=0.1",
+  "prometheus-client>=0.26.0",
+]
+
+[project.optional-dependencies]
+local-embeddings = ["fastembed>=0.4"]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.5",
+  "mypy>=1.10",
+  "pgserver>=0.1.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nip"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "session"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["S101", "E501"]

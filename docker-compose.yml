@@ -1,0 +1,56 @@
+# Local infrastructure. For day-to-day development run only `db` and `phoenix` here
+# (make infra) and the API, MCP server and web app natively with hot reload (make dev).
+# `docker compose --profile app up --build` runs everything in containers.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: nip
+      POSTGRES_PASSWORD: nip
+      POSTGRES_DB: nip
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nip"]
+      interval: 3s
+      retries: 20
+
+  phoenix:  # OpenTelemetry trace UI for LLM, tool and agent spans
+    image: arizephoenix/phoenix:latest
+    ports: ["6006:6006"]
+
+  mcp:
+    profiles: [app]
+    build: { context: ., dockerfile: backend/Dockerfile }
+    command: ["python", "-m", "nip.mcp_server.server"]
+    environment:
+      NIP_MCP_HOST: 0.0.0.0
+      NIP_DATABASE_URL: postgresql://nip:nip@db:5432/nip
+      NIP_EMBEDDINGS_BASE_URL: http://host.docker.internal:11434
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: { db: { condition: service_healthy } }
+
+  api:
+    profiles: [app]
+    build: { context: ., dockerfile: backend/Dockerfile }
+    env_file: [.env]
+    environment:
+      NIP_DATABASE_URL: postgresql://nip:nip@db:5432/nip
+      NIP_TOOL_TRANSPORT: mcp
+      NIP_MCP_SERVER_URL: http://mcp:8765/mcp
+      NIP_LLM_BASE_URL: ${NIP_LLM_BASE_URL_DOCKER:-http://host.docker.internal:11434/v1}
+      NIP_EMBEDDINGS_BASE_URL: http://host.docker.internal:11434
+      NIP_OTEL_ENDPOINT: http://phoenix:6006/v1/traces
+      NIP_CORS_ORIGINS: '["http://localhost:8080","http://localhost:5173"]'
+    ports: ["8000:8000"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: { db: { condition: service_healthy }, mcp: { condition: service_started } }
+
+  web:
+    profiles: [app]
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on: [api]
+
+volumes:
+  pgdata:

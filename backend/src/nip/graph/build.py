@@ -1,0 +1,300 @@
+"""The orchestration graph: intake guard -> supervisor <-> agents -> answer.
+
+    intake ──► supervisor ──► health_assessment ─┐
+                  ▲  │──► nutrition_knowledge ───┤
+                  │  │──► meal_planning ─────────┤ (back to supervisor)
+                  │  │──► validation ────────────┘
+                  │  ├──► recommendation ──► END
+                  │  └──► clarify ──► END
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from typing import Any
+
+import structlog
+from langgraph.config import get_stream_writer
+from langgraph.graph import END, START, StateGraph
+
+from nip.agents import specs
+from nip.agents.base import AgentResult
+from nip.domain.models import Citation, Recommendation, RiskFlag
+from nip.graph.state import NIPState
+from nip.graph.supervisor import enforce, fallback_decision, llm_decide
+from nip.security.guard import BLOCKED_RESPONSES, check_input
+
+log = structlog.get_logger("nip.graph")
+
+AGENT_NODES = ["health_assessment", "nutrition_knowledge", "meal_planning", "validation", "recommendation"]
+
+
+def _writer():
+    try:
+        return get_stream_writer()
+    except Exception:
+        return lambda _e: None
+
+
+def _j(x: Any) -> str:
+    return json.dumps(x, default=str, indent=1)
+
+
+def _ctx(state: NIPState) -> dict:
+    """Per-run working context handed to agent tools (a copy; merged back explicitly)."""
+    plans = state.get("plans") or []
+    vals = state.get("validations") or []
+    return {
+        "profile": dict(state.get("profile") or {}),
+        "health": state.get("health"),
+        "evidence": state.get("evidence") or [],
+        "plan": plans[-1] if plans else None,
+        "plan_with_totals": vals[-1].get("plan_with_totals") if vals else None,
+        "retrieved": {},
+    }
+
+
+def _run_record(state: NIPState, agent: str, res: AgentResult) -> dict:
+    return {"turn": state.get("turn"), "agent": agent, "status": res.status, "steps": res.steps,
+            "tokens": res.tokens, "ms": res.ms, "error": res.error}
+
+
+# ---------------------------------------------------------------- intake ------------------------------
+
+async def intake(state: NIPState) -> dict:
+    emit = _writer()
+    check = check_input(state.get("request", ""))
+    turn = (state.get("turn") or 0) + 1
+    upd: dict[str, Any] = {
+        "request": check.text, "input_flags": check.flags, "turn": turn, "turn_steps": 0,
+        "turn_revisions": 0, "turn_tokens": 0, "recommendation": None, "next": None, "objectives": [],
+        "pending_questions": [], "status": "running", "blocked_reason": None,
+        "history": [{"role": "user", "content": check.text, "turn": turn}],
+    }
+    emit({"type": "intake", "flags": check.flags, "blocked": check.blocked, "ts": time.time()})
+    if check.blocked:
+        text = BLOCKED_RESPONSES[check.reason or "empty"]
+        rec = Recommendation(headline="", summary=text, disclaimer="")
+        upd |= {"status": "blocked", "blocked_reason": check.reason, "recommendation": rec.model_dump(),
+                "history": upd["history"] + [{"role": "assistant", "content": text, "turn": turn}]}
+    elif "eating_disorder_risk" in check.flags and state.get("health"):
+        h = dict(state["health"])
+        h["escalation_required"] = True
+        h["risk_flags"] = [*h.get("risk_flags", []), RiskFlag(
+            code="eating_disorder_risk", severity="critical",
+            message="Message suggests disordered eating; no restrictive plans.").model_dump()]
+        upd["health"] = h
+    return upd
+
+
+# ---------------------------------------------------------------- supervisor --------------------------
+
+async def supervisor(state: NIPState) -> dict:
+    emit = _writer()
+    t0 = time.perf_counter()
+    d = await llm_decide(state) or fallback_decision(state)
+    nxt, override = enforce(state, d)
+    rec = {"turn": state.get("turn"), "step": state.get("turn_steps", 0) + 1, "proposed": d.next,
+           "next": nxt, "reason": d.reason, "override": override, "instruction": d.instruction,
+           "ms": round((time.perf_counter() - t0) * 1000, 1)}
+    emit({"type": "supervisor_decision", **rec, "objectives": d.objectives, "ts": time.time()})
+    log.info("supervisor.decision", **{k: v for k, v in rec.items() if k != "instruction"})
+    return {"next": nxt, "instruction": d.instruction if not override else f"{d.instruction} ({override})",
+            "objectives": d.objectives or state.get("objectives") or [], "decisions": [rec],
+            "turn_steps": state.get("turn_steps", 0) + 1}
+
+
+def route(state: NIPState) -> str:
+    return state.get("next") or "recommendation"
+
+
+# ---------------------------------------------------------------- agents ------------------------------
+
+def _common_brief(state: NIPState) -> str:
+    return (f"<user_message>\n{state['request']}\n</user_message>\n\n"
+            f"Supervisor instruction: {state.get('instruction', '')}\n"
+            f"Objectives for this request: {state.get('objectives')}\n")
+
+
+async def health_assessment(state: NIPState) -> dict:
+    emit, ctx = _writer(), _ctx(state)
+    history = [h["content"] for h in (state.get("history") or [])[-6:] if h["role"] == "user"]
+    brief = (_common_brief(state) + f"\nEarlier user messages: {_j(history[:-1])}\n"
+             f"Current profile: {_j(ctx['profile'])}\nSafety flags from the input guard: {state.get('input_flags')}")
+    res = await specs.health_agent(ctx, emit).run(brief)
+    upd: dict[str, Any] = {"profile": ctx["profile"], "agent_runs": [_run_record(state, "health_assessment", res)],
+                           "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
+    sub = res.output
+    if ctx.get("assessment"):
+        h = dict(ctx["assessment"])
+        flags = list(h.get("risk_flags", []))
+        if sub:
+            flags += [f.model_dump() for f in sub.extra_risk_flags]
+            h["assumptions"] = [*h.get("assumptions", []), *sub.assumptions]
+            h["rationale"] = f"{h.get('rationale', '')} {sub.rationale}".strip()
+        if "eating_disorder_risk" in (state.get("input_flags") or []):
+            flags.append(RiskFlag(code="eating_disorder_risk", severity="critical",
+                                  message="Message suggests disordered eating; no restrictive plans.").model_dump())
+        if any(f["code"] == "eating_disorder_risk" for f in flags):
+            h["escalation_required"] = True
+        h["risk_flags"] = list({f["code"]: f for f in flags}.values())
+        upd["health"] = h
+        upd["pending_questions"] = []
+    if sub and not sub.profile_complete:
+        upd["pending_questions"] = sub.questions_for_user
+    return upd
+
+
+async def nutrition_knowledge(state: NIPState) -> dict:
+    emit, ctx = _writer(), _ctx(state)
+    p = ctx["profile"]
+    brief = (_common_brief(state) + "\nAnswer the evidence questions implied by the instruction and request.\n"
+             f"User context: region={p.get('region')}, diet={p.get('diet_pattern')}, conditions={p.get('conditions')}, "
+             f"medications={p.get('medications')}, pregnant={p.get('pregnant')}")
+    res = await specs.knowledge_agent(ctx, emit).run(brief)
+    upd: dict[str, Any] = {"agent_runs": [_run_record(state, "nutrition_knowledge", res)],
+                           "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
+    if res.output:
+        items = []
+        for it in res.output.items:
+            cits = [Citation(**ctx["retrieved"][c]).model_dump() for c in it.cited_chunk_ids if c in ctx["retrieved"]]
+            items.append({"question": it.question, "answer": it.answer, "citations": cits,
+                          "sufficient": it.sufficient})
+        upd["evidence"] = items
+    return upd
+
+
+async def meal_planning(state: NIPState) -> dict:
+    emit, ctx = _writer(), _ctx(state)
+    plans, vals = state.get("plans") or [], state.get("validations") or []
+    revising = ""
+    turn_plan = plans and plans[-1].get("turn") == state.get("turn")
+    if turn_plan and vals and vals[-1]["plan_version"] == plans[-1]["version"] and vals[-1]["verdict"] == "REJECT":
+        viol = [v for v in vals[-1]["violations"] if v["severity"] in ("critical", "warning")]
+        revising = f"\nREVISION: your previous plan was rejected. Fix these:\n{_j(viol[:15])}\nPrevious plan:\n{_j(plans[-1]['days'])}"
+    elif plans:
+        revising = f"\nThe user's current plan (modify only what the request asks):\n{_j(plans[-1]['days'])}"
+    h = ctx["health"]
+    evidence = [{"q": e["question"], "a": e["answer"]} for e in ctx["evidence"]][-6:]
+    brief = (_common_brief(state) +
+             f"\nProfile: {_j(ctx['profile'])}\nDaily targets: {_j(h['targets'])}\nLimits: {_j(h['limits'])}\n"
+             f"Risk flags: {[f['code'] for f in h['risk_flags']]}\nMeals per day: {ctx['profile'].get('meals_per_day', 3)}\n"
+             f"Relevant evidence: {_j(evidence)}\nDefault to 3 days unless the user asked for a different number (max 7)."
+             + revising)
+    res = await specs.planner_agent(ctx, emit).run(brief)
+    upd: dict[str, Any] = {"agent_runs": [_run_record(state, "meal_planning", res)],
+                           "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
+    if res.output:
+        version = (plans[-1]["version"] + 1) if plans else 1
+        upd["plans"] = [{"version": version, "turn": state.get("turn"), "region": ctx["profile"].get("region", "IN"),
+                         "notes": res.output.notes,
+                         "days": [d.model_dump() for d in res.output.days]}]
+        if revising.startswith("\nREVISION"):
+            upd["turn_revisions"] = state.get("turn_revisions", 0) + 1
+    else:
+        upd["turn_revisions"] = state.get("turn_revisions", 0) + 1
+    return upd
+
+
+async def validation(state: NIPState) -> dict:
+    emit, ctx = _writer(), _ctx(state)
+    plan = ctx["plan"]
+    ctx["plan"] = {"days": plan["days"], "region": plan["region"], "notes": plan.get("notes", ""),
+                   "version": plan["version"]}
+    brief = (_common_brief(state) + f"\nProfile: {_j(ctx['profile'])}\nTargets: {_j(ctx['health']['targets'])}\n"
+             f"Plan version {plan['version']}:\n{_j(plan['days'])}")
+    res = await specs.validator_agent(ctx, emit).run(brief)
+    upd: dict[str, Any] = {"agent_runs": [_run_record(state, "validation", res)],
+                           "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
+    rules = ctx.get("rules_report")
+    if rules is None:  # agent failed before running rules: run them deterministically, never skip the gate
+        from nip.tools.registry import check_plan
+        out = check_plan(ctx["profile"], ctx["health"], ctx["plan"])
+        rules, ctx["plan_with_totals"] = out["report"], out["plan"]
+    verdict = res.output.verdict if res.output else rules["verdict"]
+    extra = [v.model_dump() for v in res.output.extra_violations] if res.output else []
+    upd["validations"] = [{
+        "plan_version": plan["version"], "verdict": verdict, "violations": rules["violations"] + extra,
+        "summary": res.output.summary if res.output else rules["summary"], "rules_summary": rules["summary"],
+        "checked": rules["checked"], "plan_with_totals": ctx.get("plan_with_totals"),
+    }]
+    emit({"type": "validation_verdict", "verdict": verdict, "plan_version": plan["version"],
+          "critical": sum(v["severity"] == "critical" for v in upd["validations"][0]["violations"]),
+          "ts": time.time()})
+    return upd
+
+
+async def recommendation(state: NIPState) -> dict:
+    emit, ctx = _writer(), _ctx(state)
+    plans, vals = state.get("plans") or [], state.get("validations") or []
+    plan_block = "No meal plan for this request."
+    showable = None
+    if plans and vals and vals[-1]["plan_version"] == plans[-1]["version"]:
+        v = vals[-1]
+        if v["verdict"] == "PASS":
+            showable = v["plan_with_totals"]
+            plan_block = f"Validated plan (PASS) with computed totals:\n{_j(showable)}"
+        else:
+            plan_block = (f"The latest plan was NOT approved (verdict {v['verdict']}): {v['summary']}. "
+                          "Do not present it.")
+    evidence = [{"question": e["question"], "answer": e["answer"], "sufficient": e["sufficient"],
+                 "citations": [{"chunk_id": c["chunk_id"], "title": c["title"]} for c in e["citations"]]}
+                for e in ctx["evidence"]]
+    h = ctx["health"]
+    brief = (_common_brief(state) +
+             f"\nProfile: {_j(ctx['profile'])}\nHealth assessment: {_j(h) if h else 'not available'}\n"
+             f"{plan_block}\nEvidence: {_j(evidence)}\nInput safety flags: {state.get('input_flags')}\n"
+             f"Questions still open: {state.get('pending_questions')}")
+    res = await specs.recommendation_agent(ctx, emit).run(brief)
+    upd: dict[str, Any] = {"agent_runs": [_run_record(state, "recommendation", res)],
+                           "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
+    if res.output:
+        o = res.output
+        pool = {**{c["chunk_id"]: c for e in ctx["evidence"] for c in e["citations"]}, **ctx["retrieved"]}
+        cits = [Citation(**pool[c]) for c in o.cited_chunk_ids if c in pool]
+        rec = Recommendation(headline=o.headline, summary=o.summary, key_points=o.key_points, tips=o.tips,
+                             citations=cits, follow_up_questions=o.follow_up_questions)
+        status = "answered"
+    else:
+        rec = Recommendation(headline="I couldn't finish this one",
+                             summary="Something went wrong while preparing your answer. Please try again, "
+                                     "or rephrase your request.")
+        status = "failed"
+    if h and h.get("escalation_required"):
+        rec.key_points = ["Because of your health situation, please review any diet change with a doctor "
+                          "or registered dietitian.", *rec.key_points]
+    out = rec.model_dump()
+    out["plan"] = showable
+    upd |= {"recommendation": out, "status": status,
+            "history": [{"role": "assistant", "content": rec.summary, "turn": state.get("turn")}]}
+    emit({"type": "answer", "status": status, "ts": time.time()})
+    return upd
+
+
+async def clarify(state: NIPState) -> dict:
+    qs = state.get("pending_questions") or ["Could you tell me your age, sex, height and weight?"]
+    text = "To personalise this, I need a bit more information:\n" + "\n".join(f"- {q}" for q in qs)
+    rec = Recommendation(headline="A few quick questions", summary=text, follow_up_questions=qs, disclaimer="")
+    _writer()({"type": "answer", "status": "clarifying", "ts": time.time()})
+    return {"recommendation": rec.model_dump() | {"plan": None}, "status": "clarifying",
+            "history": [{"role": "assistant", "content": text, "turn": state.get("turn")}]}
+
+
+def build_graph(checkpointer=None):
+    g = StateGraph(NIPState)
+    g.add_node("intake", intake)
+    g.add_node("supervisor", supervisor)
+    for name, fn in [("health_assessment", health_assessment), ("nutrition_knowledge", nutrition_knowledge),
+                     ("meal_planning", meal_planning), ("validation", validation),
+                     ("recommendation", recommendation), ("clarify", clarify)]:
+        g.add_node(name, fn)
+    g.add_edge(START, "intake")
+    g.add_conditional_edges("intake", lambda s: END if s.get("status") == "blocked" else "supervisor",
+                            ["supervisor", END])
+    g.add_conditional_edges("supervisor", route, [*AGENT_NODES, "clarify"])
+    for n in ["health_assessment", "nutrition_knowledge", "meal_planning", "validation"]:
+        g.add_edge(n, "supervisor")
+    g.add_edge("recommendation", END)
+    g.add_edge("clarify", END)
+    return g.compile(checkpointer=checkpointer)

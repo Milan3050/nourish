@@ -1,0 +1,51 @@
+# Deterministic nutrition safety rules. Versioned with the code; every validation report records
+# the version so a decision can be traced to the exact rules that produced it.
+version: "2026.11.1"
+
+calorie_floor_kcal:
+  female: 1200
+  male: 1500
+
+# Daily tolerable upper intake levels for adults (from food). Exceeding is a warning, 1.5x critical.
+upper_limits:
+  iron_mg: 45
+  calcium_mg: 2500
+  vitamin_c_mg: 2000
+
+max_single_portion_g: 600
+macro_tolerance_pct: 10        # kcal and protein must be within this of target
+secondary_tolerance_pct: 25    # carbs and fat
+vitamin_k_max_daily_swing: 0.5 # warfarin: max (max-min)/mean of daily vitamin K across the plan
+
+# Drug-food interactions. Medication matching is substring and case-insensitive.
+interactions:
+  - id: grapefruit_statin
+    medications: [atorvastatin, simvastatin, lovastatin]
+    food_keywords: [grapefruit, pomelo, seville orange]
+    severity: critical
+    message: "Grapefruit raises blood levels of some statins; avoid while on this medication."
+  - id: tyramine_maoi
+    medications: [phenelzine, tranylcypromine, isocarboxazid, selegiline, moclobemide]
+    food_keywords: [aged cheese, cheddar, parmesan, blue cheese, salami, pepperoni, soy sauce, miso,
+                    sauerkraut, kimchi, fermented, cured, fava, broad bean]
+    severity: critical
+    message: "High-tyramine foods can cause a dangerous blood-pressure spike with MAO inhibitors."
+  - id: alcohol_metronidazole
+    medications: [metronidazole, tinidazole]
+    food_keywords: [wine, beer, rum, vodka, whisky, whiskey, liqueur, alcohol]
+    severity: critical
+    message: "Alcohol with metronidazole can cause severe nausea and flushing."
+  - id: potassium_ace_inhibitor
+    medications: [lisinopril, enalapril, ramipril, spironolactone]
+    food_keywords: [salt substitute, potassium chloride]
+    severity: critical
+    message: "Potassium-based salt substitutes can cause high potassium with this medication."
+  - id: levothyroxine_soy_fiber
+    medications: [levothyroxine, thyroxine, eltroxin]
+    food_keywords: [soy, soya, tofu]
+    severity: info
+    message: "Soy can reduce levothyroxine absorption; take the medicine 4 hours apart from soy."
+
+# Conditions or states that force the ESCALATE verdict (safe-mode recommendation + clinician referral).
+escalation_flags: [minor, pregnancy_lactation, kidney_disease, type1_diabetes, weight_loss_underweight,
+                   eating_disorder_risk]

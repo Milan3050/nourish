@@ -1,0 +1,50 @@
+{"id": "r01", "query": "I take warfarin, can I still eat palak and methi?", "region": "IN", "relevant": ["warfarin-vitamin-k#1", "warfarin-vitamin-k#2"]}
+{"id": "r02", "query": "is it ok to drink grapefruit juice with my cholesterol pills", "region": "US", "relevant": ["grapefruit-statins#2", "grapefruit-statins#1", "grapefruit-statins#3"]}
+{"id": "r03", "query": "which cheeses are dangerous with phenelzine", "region": "US", "relevant": ["maoi-tyramine#2", "maoi-tyramine#1"]}
+{"id": "r04", "query": "how many grams of protein per kilo for building muscle", "region": "US", "relevant": ["protein-requirements#2"]}
+{"id": "r05", "query": "protein requirement for Indian adults ICMR", "region": "IN", "relevant": ["icmr-rda-2020#1"]}
+{"id": "r06", "query": "does creatine damage your kidneys", "region": "US", "relevant": ["creatine-supplement#2", "creatine-supplement#3", "ckd-nutrition#3"]}
+{"id": "r07", "query": "how fast can I safely lose weight per week", "region": "IN", "relevant": ["weight-loss-safe-rate#1", "weight-loss-safe-rate#2"]}
+{"id": "r08", "query": "minimum calories a day without a doctor", "region": "US", "relevant": ["weight-loss-safe-rate#3"]}
+{"id": "r09", "query": "how is BMR calculated from height and weight", "region": "IN", "relevant": ["energy-mifflin-st-jeor#1"]}
+{"id": "r10", "query": "activity multiplier for someone who exercises 4 days a week", "region": "US", "relevant": ["energy-mifflin-st-jeor#2"]}
+{"id": "r11", "query": "how much salt per day is recommended", "region": "IN", "relevant": ["indian-salt-hidden-sodium#1", "sodium-hypertension-dash#1"]}
+{"id": "r12", "query": "pickles and papad sodium content", "region": "IN", "relevant": ["indian-salt-hidden-sodium#2"]}
+{"id": "r13", "query": "diet plan to lower blood pressure", "region": "US", "relevant": ["sodium-hypertension-dash#2", "sodium-hypertension-dash#1"]}
+{"id": "r14", "query": "can I use low sodium salt substitute on lisinopril", "region": "US", "relevant": ["sodium-hypertension-dash#3"]}
+{"id": "r15", "query": "best carbs for type 2 diabetes", "region": "IN", "relevant": ["type2-diabetes-nutrition#2", "millets#2"]}
+{"id": "r16", "query": "I'm on insulin, should I change my carbs", "region": "US", "relevant": ["type2-diabetes-nutrition#3"]}
+{"id": "r17", "query": "what foods to limit with chronic kidney disease", "region": "IN", "relevant": ["ckd-nutrition#3", "ckd-nutrition#2", "ckd-nutrition#1"]}
+{"id": "r18", "query": "vegans need B12 supplement?", "region": "US", "relevant": ["vegan-vegetarian-nutrients#2"]}
+{"id": "r19", "query": "dal chawal complete protein", "region": "IN", "relevant": ["vegan-vegetarian-nutrients#3", "indian-protein-sources#1", "icmr-rda-2020#1"]}
+{"id": "r20", "query": "high protein vegetarian Indian foods", "region": "IN", "relevant": ["indian-protein-sources#1", "indian-protein-sources#3"]}
+{"id": "r21", "query": "how many grams of protein in an egg", "region": "IN", "relevant": ["indian-protein-sources#2"]}
+{"id": "r22", "query": "foods that improve iron absorption", "region": "IN", "relevant": ["iron#2"]}
+{"id": "r23", "query": "should I drink chai with meals if I am anaemic", "region": "IN", "relevant": ["iron#2", "iron#1"]}
+{"id": "r24", "query": "maximum safe iron intake", "region": "US", "relevant": ["iron#3"]}
+{"id": "r25", "query": "calcium sources if I don't drink milk", "region": "IN", "relevant": ["calcium-vitamin-d#1", "lactose-intolerance#3"]}
+{"id": "r26", "query": "ragi calcium", "region": "IN", "relevant": ["millets#1", "calcium-vitamin-d#1"]}
+{"id": "r27", "query": "vitamin D foods", "region": "US", "relevant": ["calcium-vitamin-d#2"]}
+{"id": "r28", "query": "omega 3 for vegetarians", "region": "IN", "relevant": ["omega-3#1", "omega-3#2"]}
+{"id": "r29", "query": "which fish to avoid when pregnant", "region": "US", "relevant": ["omega-3#3", "pregnancy-nutrition#3"]}
+{"id": "r30", "query": "extra calories needed in pregnancy", "region": "IN", "relevant": ["pregnancy-nutrition#1", "icmr-rda-2020#2"]}
+{"id": "r31", "query": "folic acid before pregnancy", "region": "US", "relevant": ["pregnancy-nutrition#2"]}
+{"id": "r32", "query": "caffeine limit per day", "region": "US", "relevant": ["caffeine-hydration#1"]}
+{"id": "r33", "query": "how much water should I drink", "region": "IN", "relevant": ["caffeine-hydration#2"]}
+{"id": "r34", "query": "is 16:8 fasting better for weight loss", "region": "US", "relevant": ["intermittent-fasting#1", "intermittent-fasting#3"]}
+{"id": "r35", "query": "who should not do intermittent fasting", "region": "IN", "relevant": ["intermittent-fasting#2"]}
+{"id": "r36", "query": "what are the nine major food allergens", "region": "US", "relevant": ["food-allergens#1"]}
+{"id": "r37", "query": "is ghee safe with a milk allergy", "region": "IN", "relevant": ["food-allergens#2"]}
+{"id": "r38", "query": "gluten free Indian grains", "region": "IN", "relevant": ["celiac-gluten#2", "millets#2"]}
+{"id": "r39", "query": "can celiacs eat oats", "region": "US", "relevant": ["celiac-gluten#1"]}
+{"id": "r40", "query": "lactose intolerant can I have curd", "region": "IN", "relevant": ["lactose-intolerance#2", "food-allergens#3"]}
+{"id": "r41", "query": "how much cooking oil per day", "region": "IN", "relevant": ["cooking-oils-ghee#1"]}
+{"id": "r42", "query": "is coconut oil or ghee healthy", "region": "IN", "relevant": ["cooking-oils-ghee#2"]}
+{"id": "r43", "query": "what can Jains not eat", "region": "IN", "relevant": ["religious-cultural-diets#3"]}
+{"id": "r44", "query": "halal diet rules", "region": "US", "relevant": ["religious-cultural-diets#1"]}
+{"id": "r45", "query": "BMI overweight cutoff for Indians", "region": "IN", "relevant": ["asian-bmi-cutoffs#2", "asian-bmi-cutoffs#1"]}
+{"id": "r46", "query": "waist size abdominal obesity India", "region": "IN", "relevant": ["asian-bmi-cutoffs#2"]}
+{"id": "r47", "query": "how much fiber per day", "region": "US", "relevant": ["dga-key-recommendations#3", "fiber-sources#1"]}
+{"id": "r48", "query": "added sugar limit", "region": "US", "relevant": ["dga-key-recommendations#2"]}
+{"id": "r49", "query": "ultra processed food guidelines India", "region": "IN", "relevant": ["icmr-nin-dietary-guidelines-2024#2"]}
+{"id": "r50", "query": "signs someone has an eating disorder", "region": "US", "relevant": ["eating-disorders-safety#2"]}
