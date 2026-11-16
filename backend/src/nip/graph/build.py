@@ -323,9 +323,11 @@ async def recommendation(state: NIPState) -> dict:
     planner_ran = any(r["agent"] == "meal_planning" and r.get("turn") == state.get("turn")
                       for r in state.get("agent_runs") or [])
     new_plan_passed = showable is not None and plans[-1].get("turn") == state.get("turn")
+    why = planning_failure_reason(state)
     if showable is None and planner_ran:
         plan_block += ("\nMeal planning was attempted this turn but no plan passed validation. Say plainly that "
-                       "you could not produce a safe plan this time and why; do not describe a plan.")
+                       f"you could not produce a safe plan this time. The reason, from the checks: {why}. Use only "
+                       "this reason (the user's profile is complete); do not describe a plan.")
     elif planner_ran and not new_plan_passed:
         plan_block = ("The user asked for a change, but no revised plan passed validation this turn. The plan "
                       "below is their EXISTING plan, unchanged. Say plainly that the change could not be made "
@@ -347,8 +349,9 @@ async def recommendation(state: NIPState) -> dict:
         o = res.output
         pool = {**{c["chunk_id"]: c for e in ctx["evidence"] for c in e["citations"]}, **ctx["retrieved"]}
         cits = [Citation(**pool[c]) for c in o.cited_chunk_ids if c in pool]
-        rec = Recommendation(headline=o.headline, summary=o.summary, key_points=o.key_points, tips=o.tips,
-                             citations=cits, follow_up_questions=o.follow_up_questions)
+        rec = Recommendation(headline=o.headline, summary=o.summary, key_points=distinct_points(o.summary, o.key_points),
+                             tips=distinct_points(o.summary, o.tips), citations=cits,
+                             follow_up_questions=o.follow_up_questions)
         status = "answered"
     else:  # the agent could not produce an accepted answer: compose one from validated context only
         rec = fallback_answer(h, showable, ctx["evidence"], planner_ran, bool(state.get("plan_requested")))
@@ -371,6 +374,44 @@ async def recommendation(state: NIPState) -> dict:
             "history": [{"role": "assistant", "content": rec.summary, "turn": state.get("turn")}]}
     emit({"type": "answer", "status": status, "ts": time.time()})
     return upd
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def distinct_points(summary: str, points: list[str]) -> list[str]:
+    """Drop bullet points that repeat the summary (or an earlier bullet): 7B models often restate the
+    summary sentence by sentence as 'key points'."""
+    seen = [_words(x) for x in re.split(r"(?<=[.!?])\s+", summary) if x.strip()]
+    out = []
+    for p in points:
+        w = _words(p)
+        if w and not any(len(w & s) / len(w) >= 0.7 for s in seen):
+            out.append(p)
+            seen.append(w)
+    return out
+
+
+def planning_failure_reason(state: NIPState) -> str:
+    """Plain-language reason the last planning attempt this turn failed, from its recorded check errors."""
+    runs = [r for r in state.get("agent_runs") or [] if r["agent"] == "meal_planning" and r.get("turn") == state.get("turn")]
+    err = (runs[-1].get("error") or "") if runs else ""
+    vals = state.get("validations") or []
+    if vals and vals[-1].get("verdict") != "PASS" and runs and runs[-1]["status"] == "done":
+        crit = [v["message"] for v in vals[-1]["violations"] if v["severity"] == "critical"][:2]
+        return "the safety check rejected the plan: " + "; ".join(crit)
+    if "protein" in err and ("above" in err or "too high" in err):
+        return "the foods chosen kept protein above the safe upper limit for the energy target"
+    if "protein" in err:
+        return "the foods chosen could not reach the protein target"
+    if "kcal" in err or "Energy" in err:
+        return "the foods chosen could not reach the energy target within realistic portions"
+    if "unknown food_code" in err:
+        return "the planner kept using foods that are not in the food table"
+    if "slots" in err or "repeat" in err:
+        return "the planner did not produce complete days of meals"
+    return "the planner ran out of attempts before a plan passed the checks"
 
 
 def fallback_answer(health: dict | None, plan: dict | None, evidence: list[dict], planner_ran: bool,

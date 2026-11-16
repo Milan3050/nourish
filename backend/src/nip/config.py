@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     # --- Budgets & safety ----------------------------------------------------------------------
     max_supervisor_steps: int = 12
     max_agent_steps: int = 10
+    max_planner_steps: int = 16  # the planner needs more tool rounds than the other agents
     max_plan_revisions: int = 3
     max_request_tokens: int = 120_000
     macro_tolerance_pct: float = 10.0

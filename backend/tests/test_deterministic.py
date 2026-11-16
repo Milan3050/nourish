@@ -361,3 +361,12 @@ def test_protein_is_a_range_with_a_deterministic_cap(db):
     assert t.protein_g * 0.9 <= res["totals"]["protein_g"] <= gain.limits.protein_g_max
     shares = [k / sum(res["meal_kcal"]) for k in res["meal_kcal"]]
     assert all(0.2 <= x <= 0.45 for x in shares)
+
+
+def test_bullets_that_repeat_the_summary_are_dropped():
+    from nip.graph.build import distinct_points
+
+    summary = "Your goal is to gain muscle and build weight. Aim for protein of 1.4 to 2.0 g per kg."
+    pts = ["Your goal is to gain muscle and build weight.", "Eat a protein source at every meal.",
+           "Aim for protein intakes of 1.4 to 2.0 g per kg daily."]
+    assert distinct_points(summary, pts) == ["Eat a protein source at every meal."]

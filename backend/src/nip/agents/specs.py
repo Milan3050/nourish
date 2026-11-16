@@ -446,7 +446,7 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
     tools = [_tool(search_foods, "search_foods", search_foods.__doc__),
              _tool(scale_portions, "scale_portions", scale_portions.__doc__)]
     return GoalAgent("Meal Planning Agent", PLANNER_GOAL, tools, PlanSubmission, check,
-                     max(s.max_agent_steps, 16), emit, prepare=prepare)
+                     s.max_planner_steps, emit, prepare=prepare)
 
 
 # ==================================================================================================
@@ -511,7 +511,8 @@ def validator_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
 class RecommendationSubmission(BaseModel):
     headline: str = Field(max_length=120)
     summary: str = Field(description="3-6 sentences, personal and direct, grounded in the context.")
-    key_points: list[str] = Field(default=[], max_length=6)
+    key_points: list[str] = Field(default=[], max_length=6,
+                                  description="New, specific points not already said in the summary.")
     tips: list[str] = Field(default=[], max_length=5)
     cited_chunk_ids: list[str] = []
     follow_up_questions: list[str] = Field(default=[], max_length=3)
