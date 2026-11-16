@@ -36,6 +36,10 @@ PLAN_REQUEST = re.compile(
     r"|(?:swap|replace|change)\s+(?:the\s+|my\s+)?(?:breakfast|lunch|dinner|snack|meal)"
     r"|make (?:tomorrow|today|day \d) (?:a|an)\b)", re.I)
 
+WORKOUT_REQUEST = re.compile(r"\b(?:work ?outs?|exercise (?:plan|routine|program)|training (?:plan|program|split)|"
+                             r"gym (?:plan|routine)|fitness plan|strength training|exercise routine)\b", re.I)
+MEAL_WORDS = re.compile(r"\b(?:meals?|diet|food|eat|menu|nutrition|breakfast|lunch|dinner)\b", re.I)
+
 NUM_WORDS = {"one": 1, "a": 1, "single": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
 DAYS = re.compile(r"\b(\d|one|a|single|two|three|four|five|six|seven)[- ](?:days?|day's)\b|\b(week|weekly)\b", re.I)
 
@@ -72,7 +76,8 @@ ESSENTIAL_QUESTIONS = {
 
 log = structlog.get_logger("nip.graph")
 
-AGENT_NODES = ["health_assessment", "nutrition_knowledge", "meal_planning", "validation", "recommendation"]
+AGENT_NODES = ["health_assessment", "nutrition_knowledge", "meal_planning", "workout_planning", "validation",
+               "recommendation"]
 
 
 def _writer():
@@ -123,7 +128,9 @@ async def intake(state: NIPState) -> dict:
     upd: dict[str, Any] = {
         "request": check.text, "input_flags": check.flags, "turn": turn, "turn_steps": 0,
         "turn_exclusions": request_exclusions(get_food_db(), check.text, region),
-        "plan_requested": bool(PLAN_REQUEST.search(check.text)),
+        "workout_requested": bool(WORKOUT_REQUEST.search(check.text)),
+        "plan_requested": bool(PLAN_REQUEST.search(check.text)) and (
+            not WORKOUT_REQUEST.search(check.text) or bool(MEAL_WORDS.search(check.text))),
         "requested_days": requested_days(check.text),
         "turn_revisions": 0, "turn_tokens": 0, "recommendation": None, "next": None, "objectives": [],
         "pending_questions": [], "status": "running", "blocked_reason": None,
@@ -279,6 +286,36 @@ async def meal_planning(state: NIPState) -> dict:
     return upd
 
 
+async def workout_planning(state: NIPState) -> dict:
+    from nip.tools.exercise import WEEKDAYS, library
+
+    emit, ctx = _writer(), _ctx(state)
+    p, h = ctx["profile"], ctx["health"]
+    current = (state.get("workouts") or [])[-1:] or None
+    brief = (_common_brief(state) +
+             f"\nTraining profile: {_j({k: p.get(k) for k in ('training_days_per_week', 'session_minutes', 'experience', 'equipment', 'injuries', 'goal', 'age', 'weight_kg')})}"
+             f"\nRisk flags: {[f['code'] for f in h['risk_flags']]}"
+             + (f"\nThe user's current workout (change only what the request asks):\n{_j(current[0]['sessions'])}"
+                if current else ""))
+    res = await specs.workout_agent(ctx, emit).run(brief)
+    upd: dict[str, Any] = {"agent_runs": [_run_record(state, "workout_planning", res)],
+                           "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
+    if res.output:
+        lib, report = library(), ctx.get("workout_report") or {}
+        sessions = []
+        for sess in res.output.model_dump()["sessions"]:
+            stats = next((x for x in report.get("sessions", []) if x["day"] == sess["day"]), {})
+            sessions.append({**sess, "weekday": WEEKDAYS[sess["day"] - 1], **stats,
+                             "exercises": [{**x, "name": lib[x["exercise_id"]]["name"],
+                                            "type": lib[x["exercise_id"]]["type"]} for x in sess["exercises"]]})
+        version = (current[0]["version"] + 1) if current else 1
+        upd["workouts"] = [{"version": version, "turn": state.get("turn"), "sessions": sorted(sessions, key=lambda x: x["day"]),
+                            "progression": res.output.progression, "totals": report.get("totals"),
+                            "violations": report.get("violations", []), "verdict": report.get("verdict")}]
+        emit({"type": "workout_verdict", "verdict": report.get("verdict"), "version": version, "ts": time.time()})
+    return upd
+
+
 async def validation(state: NIPState) -> dict:
     emit, ctx = _writer(), _with_exclusions(_ctx(state), state)
     plan = ctx["plan"]
@@ -332,7 +369,20 @@ async def recommendation(state: NIPState) -> dict:
         plan_block = ("The user asked for a change, but no revised plan passed validation this turn. The plan "
                       "below is their EXISTING plan, unchanged. Say plainly that the change could not be made "
                       "this time; do not describe any change.\n" + plan_block)
-    ctx["plan_shown"] = showable is not None
+    workouts = state.get("workouts") or []
+    workout = workouts[-1] if workouts and workouts[-1].get("verdict") == "PASS" else None
+    if workout:
+        plan_block += ("\nWorkout plan (checked by the workout rules; numbers are computed):\n"
+                       + _j({"sessions": [{"weekday": x["weekday"], "focus": x["focus"], "minutes": x.get("minutes"),
+                                           "kcal": x.get("kcal"), "exercises": [e["name"] for e in x["exercises"]]}
+                                          for x in workout["sessions"]], "totals": workout["totals"],
+                             "progression": workout["progression"]}))
+    elif state.get("workout_requested"):
+        if (ctx["health"] or {}).get("escalation_required"):
+            plan_block += "\nNo workout plan: exercise needs clinician clearance for this person. Say so."
+        else:
+            plan_block += "\nA workout plan was requested but none passed the workout checks this turn. Say so plainly."
+    ctx["plan_shown"] = showable is not None or workout is not None
     ctx["change_failed"] = planner_ran and showable is not None and not new_plan_passed
     evidence = [{"question": e["question"], "answer": e["answer"], "sufficient": e["sufficient"],
                  "citations": [{"chunk_id": c["chunk_id"], "title": c["title"]} for c in e["citations"]]}
@@ -354,7 +404,7 @@ async def recommendation(state: NIPState) -> dict:
                              follow_up_questions=o.follow_up_questions)
         status = "answered"
     else:  # the agent could not produce an accepted answer: compose one from validated context only
-        rec = fallback_answer(h, showable, ctx["evidence"], planner_ran, bool(state.get("plan_requested")))
+        rec = fallback_answer(h, showable, ctx["evidence"], planner_ran, bool(state.get("plan_requested")), workout)
         status = "answered"
     # Final output gate, whatever wrote the answer: banned content (medication changes, cures, diagnoses,
     # guarantees) never reaches the user.
@@ -370,6 +420,7 @@ async def recommendation(state: NIPState) -> dict:
                           "or registered dietitian.", *rec.key_points]
     out = rec.model_dump()
     out["plan"] = showable
+    out["workout"] = workout
     upd |= {"recommendation": out, "status": status,
             "history": [{"role": "assistant", "content": rec.summary, "turn": state.get("turn")}]}
     emit({"type": "answer", "status": status, "ts": time.time()})
@@ -415,7 +466,7 @@ def planning_failure_reason(state: NIPState) -> str:
 
 
 def fallback_answer(health: dict | None, plan: dict | None, evidence: list[dict], planner_ran: bool,
-                    plan_requested: bool) -> Recommendation:
+                    plan_requested: bool, workout: dict | None = None) -> Recommendation:
     """Deterministic answer used when the Recommendation agent fails its checks within its budget.
 
     Built only from validated state (risk flags, the validated plan's computed totals, cited evidence),
@@ -431,6 +482,12 @@ def fallback_answer(health: dict | None, plan: dict | None, evidence: list[dict]
             summary=f"I can't give you a personalised plan safely: {why or 'your health situation needs clinical input'}. "
                     + " ".join(answers[:2]),
             citations=cites[:4])
+    if workout and not plan:
+        t = workout.get("totals") or {}
+        week = "; ".join(f"{x['weekday']}: {x['focus']} ({x.get('minutes', 0)} min)" for x in workout["sessions"])
+        return Recommendation(headline="Your checked workout plan",
+                              summary=f"{week}. About {t.get('minutes_week', 0)} minutes and {t.get('kcal_week', 0)} kcal "
+                                      "of activity a week.", citations=cites[:4])
     if plan:
         days = []
         for d in plan["days"]:
@@ -462,14 +519,14 @@ def build_graph(checkpointer=None):
     g.add_node("intake", intake)
     g.add_node("supervisor", supervisor)
     for name, fn in [("health_assessment", health_assessment), ("nutrition_knowledge", nutrition_knowledge),
-                     ("meal_planning", meal_planning), ("validation", validation),
+                     ("meal_planning", meal_planning), ("workout_planning", workout_planning), ("validation", validation),
                      ("recommendation", recommendation), ("clarify", clarify)]:
         g.add_node(name, fn)
     g.add_edge(START, "intake")
     g.add_conditional_edges("intake", lambda s: END if s.get("status") == "blocked" else "supervisor",
                             ["supervisor", END])
     g.add_conditional_edges("supervisor", route, [*AGENT_NODES, "clarify"])
-    for n in ["health_assessment", "nutrition_knowledge", "meal_planning", "validation"]:
+    for n in ["health_assessment", "nutrition_knowledge", "meal_planning", "workout_planning", "validation"]:
         g.add_edge(n, "supervisor")
     g.add_edge("recommendation", END)
     g.add_edge("clarify", END)

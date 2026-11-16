@@ -450,6 +450,70 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
 
 
 # ==================================================================================================
+# Workout Planning
+# ==================================================================================================
+
+class WorkoutExercise(BaseModel):
+    exercise_id: str
+    sets: int | None = Field(default=None, description="Strength exercises: sets")
+    reps: str | None = Field(default=None, description="Strength exercises: reps, e.g. '8-12'")
+    rest_s: int | None = Field(default=None, description="Rest between sets in seconds")
+    minutes: float | None = Field(default=None, description="Cardio and mobility: minutes")
+
+
+class WorkoutSession(BaseModel):
+    day: int = Field(ge=1, le=7, description="Weekday: 1 = Monday ... 7 = Sunday")
+    focus: str = Field(description="e.g. 'Upper body', 'Lower body + core', 'Full body', 'Cardio'")
+    exercises: list[WorkoutExercise] = Field(min_length=1)
+
+
+class WorkoutSubmission(BaseModel):
+    sessions: list[WorkoutSession] = Field(min_length=1, max_length=7)
+    progression: str = Field(default="", description="How to progress week to week, one or two sentences.")
+
+
+WORKOUT_GOAL = """Build a weekly workout plan that fits this person's goal, schedule, equipment, experience and injuries.
+1. Call `search_exercises` (by pattern: squat, hinge, lunge, push_h, push_v, pull_h, pull_v, core, cardio,
+   mobility). It only returns exercises this person can do safely with their equipment and level.
+2. Plan exactly the number of training days they have, spread across the week with rest days between hard
+   sessions. Cover the major muscle groups across the week; add cardio for fat loss or general fitness.
+3. Strength exercises need sets, reps and rest_s; cardio and mobility need minutes. Keep each session within
+   their session time.
+4. Call `check_workout` with your plan. It computes minutes, weekly sets per muscle and energy, and lists
+   violations. Fix every critical one, then submit the same plan with submit_result.
+Use exercise_id values from search_exercises only."""
+
+
+def workout_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
+    be = get_backend()
+
+    async def search_exercises(pattern: str | None = None, muscle: str | None = None, query: str = "") -> dict:
+        """Exercises this person can do safely, filtered by movement pattern, muscle or a keyword."""
+        return await be.call("search_exercises", {"profile": ctx["profile"], "pattern": pattern, "muscle": muscle,
+                                                  "query": query})
+
+    async def check_workout(sessions: list[dict]) -> dict:
+        """Check a weekly plan [{day, focus, exercises: [{exercise_id, sets, reps, rest_s | minutes}]}]:
+        violations, minutes per session, weekly sets per muscle group, energy (kcal)."""
+        res = await be.call("check_workout", {"profile": ctx["profile"], "workout": {"sessions": sessions}})
+        ctx["workout_report"] = res
+        return res
+
+    def check(sub: WorkoutSubmission) -> list[str]:
+        from nip.tools.exercise import check_workout as rules_check
+
+        report = rules_check(ctx["profile"], sub.model_dump())
+        ctx["workout_report"] = report
+        return [f"{x['location'] + ': ' if x.get('location') else ''}{x['message']}"
+                for x in report["violations"] if x["severity"] == "critical"][:12]
+
+    tools = [_tool(search_exercises, "search_exercises", search_exercises.__doc__),
+             _tool(check_workout, "check_workout", check_workout.__doc__)]
+    return GoalAgent("Workout Planning Agent", WORKOUT_GOAL, tools, WorkoutSubmission, check,
+                     get_settings().max_planner_steps, emit)
+
+
+# ==================================================================================================
 # Validation
 # ==================================================================================================
 

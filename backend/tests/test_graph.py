@@ -105,6 +105,18 @@ class World:
             return call("run_safety_rules")
         return call("submit_result", verdict=res[-1]["report"]["verdict"], summary="checked")
 
+    def workout(self, messages):
+        done = {m.name for m in messages if getattr(m, "name", None)}
+        if "search_exercises" not in done:
+            return call("search_exercises", pattern="squat")
+        ex = [{"exercise_id": "squat_bodyweight", "sets": 3, "reps": "12", "rest_s": 60},
+              {"exercise_id": "push_up", "sets": 3, "reps": "10", "rest_s": 60},
+              {"exercise_id": "inverted_row", "sets": 3, "reps": "10", "rest_s": 60},
+              {"exercise_id": "glute_bridge", "sets": 3, "reps": "12", "rest_s": 60},
+              {"exercise_id": "brisk_walk", "minutes": 15}]
+        return call("submit_result", sessions=[{"day": d, "focus": "Full body", "exercises": ex} for d in (1, 3, 5)],
+                    progression="Add reps each week.")
+
     def recommendation(self, messages):
         return call("submit_result", headline="Your answer", summary="Here is what fits your goals.", key_points=["Eat well"])
 
@@ -337,3 +349,30 @@ async def test_fallback_and_final_gate_never_show_banned_output(run):
     from nip.security.guard import check_output
     rec = final["recommendation"]
     assert final["status"] == "answered" and not check_output(" ".join([rec["headline"], rec["summary"]]))
+
+
+async def test_workout_request_runs_the_workout_agent_only(run):
+    w = veg_world()
+    w.supervisor_script = ["health_assessment", "recommendation", "recommendation"]
+    final, events, _ = await run(w, "Give me a workout plan", profile=VEG_PROFILE)
+    assert final["workout_requested"] and not final["plan_requested"]
+    assert [r["agent"] for r in final["agent_runs"]] == ["health_assessment", "workout_planning", "recommendation"]
+    wk = final["recommendation"]["workout"]
+    assert wk["verdict"] == "PASS" and len(wk["sessions"]) == 3 and wk["totals"]["kcal_week"] > 0
+    assert wk["sessions"][0]["weekday"] == "Mon" and wk["sessions"][0]["exercises"][0]["name"] == "Bodyweight squat"
+
+
+async def test_escalation_blocks_workout_planning(run):
+    w = World({**VEG_PROFILE, "pregnant": True, "sex": "female"}, "IN-L003", "IN-A015", [])
+    w.supervisor_script = ["health_assessment", "workout_planning", "recommendation"]
+    final, _, _ = await run(w, "workout plan please", profile=w.profile_fields)
+    assert "workout_planning" not in [r["agent"] for r in final["agent_runs"]]
+    assert any("clinician clearance" in (d["override"] or "") for d in final["decisions"])
+
+
+async def test_meal_and_workout_request_builds_both(run):
+    w = veg_world()
+    w.supervisor_script = ["health_assessment", "recommendation", "validation", "recommendation", "recommendation"]
+    final, _, _ = await run(w, "Build me a 1-day meal plan and a workout plan", profile=VEG_PROFILE)
+    rec = final["recommendation"]
+    assert rec["plan"] and rec["workout"], [d["override"] for d in final["decisions"]]

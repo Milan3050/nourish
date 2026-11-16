@@ -21,7 +21,7 @@ from nip.tools.energy import escalation_triggers, required_missing
 
 log = structlog.get_logger("nip.supervisor")
 
-AgentName = Literal["health_assessment", "nutrition_knowledge", "meal_planning", "validation",
+AgentName = Literal["health_assessment", "nutrition_knowledge", "meal_planning", "workout_planning", "validation",
                     "recommendation", "clarify"]
 
 
@@ -41,6 +41,7 @@ Specialists:
 - nutrition_knowledge: answers evidence questions from vetted guidelines with citations (supplements,
   conditions, food safety, "is X good for me").
 - meal_planning: builds or revises a meal plan that meets targets and constraints.
+- workout_planning: builds or revises a weekly workout plan (checked by deterministic workout rules).
 - validation: independently checks a meal plan; required before a plan is shown.
 - recommendation: writes the final personalised answer from everything gathered. Ends the turn.
 - clarify: ask the user for missing essentials. Ends the turn.
@@ -69,6 +70,8 @@ def summarise_state(state: dict) -> dict:
             "risk_flags": [f["code"] for f in health.get("risk_flags", [])]},
         "pending_questions": state.get("pending_questions") or [],
         "user_asked_for_a_plan": bool(state.get("plan_requested")),
+        "user_asked_for_a_workout": bool(state.get("workout_requested")),
+        "workout_this_turn": any(w.get("turn") == turn for w in state.get("workouts") or []),
         "evidence_this_turn": [{"question": e["question"], "sufficient": e.get("sufficient")}
                                for e in state.get("evidence") or [] if e.get("turn") == turn],
         "evidence_earlier_turns": [e["question"] for e in state.get("evidence") or [] if e.get("turn") != turn],
@@ -190,6 +193,22 @@ def _enforce_once(state: dict, nxt: str) -> tuple[str, str | None]:
             and health and not health.get("escalation_required") and planner_tries < 2 \
             and state.get("turn_revisions", 0) < s.max_plan_revisions:
         return "meal_planning", "the user asked for a plan and none has been made this turn"
+    turn_workout = any(w.get("turn") == state.get("turn") for w in state.get("workouts") or [])
+    workout_tries = _ran_this_turn(state, "workout_planning")
+    if nxt == "workout_planning":
+        if not health:
+            return ("health_assessment", "a workout plan needs a health profile first") if health_tries < 2 else \
+                ("recommendation", "health assessment could not complete")
+        if health.get("escalation_required"):
+            return "recommendation", "escalation required: no exercise plan without clinician clearance"
+        if turn_workout:
+            return "recommendation", "this turn's workout plan already passed its checks"
+        if workout_tries >= 2:
+            return "recommendation", "workout planning already tried twice"
+    if nxt == "recommendation" and state.get("workout_requested") and not turn_workout and health \
+            and not health.get("escalation_required") and workout_tries < 2 and not (
+                state.get("plan_requested") and not turn_plan and planner_tries < 2):
+        return "workout_planning", "the user asked for a workout plan and none has been made this turn"
     if nxt == "recommendation":
         if not health and escalation_triggers(profile) and health_tries < 2:
             return "health_assessment", "profile has escalation triggers; screen before any personalised answer"

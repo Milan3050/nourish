@@ -26,6 +26,7 @@ class NIPState(TypedDict, total=False):
     turn_exclusions: list[str]  # foods ruled out in this message ("without paneer"); this turn only
     plan_requested: bool  # the message asks for a plan or a change to one (deterministic, from the text)
     requested_days: int | None  # "1-day plan" -> 1; None when the message does not say
+    workout_requested: bool  # the message asks for a workout / training plan
     blocked_reason: str | None
     # durable user context (survives across turns in a thread)
     profile: dict
@@ -33,6 +34,7 @@ class NIPState(TypedDict, total=False):
     evidence: Annotated[list[dict], merge_evidence]
     plans: Annotated[list[dict], operator.add]
     validations: Annotated[list[dict], operator.add]
+    workouts: Annotated[list[dict], operator.add]  # workout plan versions, each with its rule report
     # per-turn orchestration
     objectives: list[str]
     next: str | None

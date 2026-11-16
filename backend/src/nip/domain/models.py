@@ -76,8 +76,14 @@ class UserProfile(BaseModel):
     meals_per_day: int = Field(default=3, ge=1, le=6)
     budget: Literal["low", "medium", "high"] = "medium"
     cuisine_preferences: list[str] = []
+    # Training (used by the Workout Planning agent)
+    training_days_per_week: int = Field(default=3, ge=0, le=7)
+    session_minutes: int = Field(default=45, ge=15, le=180)
+    experience: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    equipment: list[Literal["none", "dumbbells", "barbell", "machines", "bands", "pullup_bar", "bench"]] = ["none"]
+    injuries: list[str] = []  # free text, matched against exercise cautions: "knee", "lower back", "shoulder"
 
-    @field_validator("allergies", "intolerances", "dislikes", "conditions", "medications", mode="before")
+    @field_validator("allergies", "intolerances", "dislikes", "conditions", "medications", "injuries", mode="before")
     @classmethod
     def _normalise(cls, v: list[str] | str | None) -> list[str]:
         if v is None:

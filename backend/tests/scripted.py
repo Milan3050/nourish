@@ -26,7 +26,8 @@ def role_of(messages: list[BaseMessage]) -> str:
     sys = next((m.content for m in messages if isinstance(m, SystemMessage)), "")
     if "Supervisor of a nutrition" in sys:
         return "supervisor"
-    for r in ("Health Assessment", "Nutrition Knowledge", "Meal Planning", "Validation", "Recommendation"):
+    for r in ("Health Assessment", "Nutrition Knowledge", "Meal Planning", "Workout Planning", "Validation",
+              "Recommendation"):
         if f"You are the {r} Agent" in sys:
             return r.split()[0].lower()
     return "unknown"

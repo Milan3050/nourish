@@ -49,3 +49,15 @@ interactions:
 # Conditions or states that force the ESCALATE verdict (safe-mode recommendation + clinician referral).
 escalation_flags: [minor, pregnancy_lactation, kidney_disease, type1_diabetes, weight_loss_underweight,
                    eating_disorder_risk]
+
+# Workout plans (Workout Planning agent). Weekly hard sets per major muscle group by experience follow
+# the common evidence range for hypertrophy and strength (~10-20 sets for trained people, fewer to start).
+workout:
+  weekly_sets: {beginner: [6, 14], intermediate: [10, 20], advanced: [12, 22]}
+  major_muscles: [chest, back, quads, glutes, hamstrings, shoulders]
+  aerobic_minutes_week_min: 150     # WHO 2020: 150-300 min moderate activity per week
+  session_time_tolerance_pct: 15    # estimated session time may exceed the user's limit by this much
+  seconds_per_set: 40               # work time per set; rest comes from the plan
+  warmup_minutes: 5
+  max_sets_per_exercise: 6
+  rep_ranges: {strength: [3, 8], muscle_gain: [6, 15], fat_loss: [8, 20], general_fitness: [8, 15], endurance: [12, 25]}

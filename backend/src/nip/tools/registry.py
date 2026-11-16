@@ -14,6 +14,7 @@ from typing import Any
 from nip.domain.models import FoodPortion, HealthProfile, MealPlan, Region, UserProfile
 from nip.rules.engine import compute_plan_totals, validate_plan
 from nip.tools.energy import assess
+from nip.tools.exercise import check_workout, search_exercises
 from nip.tools.foods import SLOT_ENERGY_SHARE, compute_totals, get_food_db, scale_to_targets
 
 
@@ -124,7 +125,7 @@ def search_guidelines(query: str, region: str | None = None, k: int = 5, mode: s
 
 TOOLS: dict[str, Callable[..., dict]] = {
     f.__name__: f for f in (search_foods, compute_meal_nutrition, scale_portions, assess_energy, check_plan,
-                            plan_day_totals, search_guidelines)
+                            plan_day_totals, search_guidelines, search_exercises, check_workout)
 }
 
 
