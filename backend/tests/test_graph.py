@@ -223,7 +223,8 @@ async def test_unstated_body_numbers_are_not_recorded(run):
     final, events, _ = await run(w, "Make me a meal plan")
     assert final["status"] == "clarifying"
     assert final["profile"].get("weight_kg") is None and not final.get("plans")
-    assert any("weight" in q for q in final["pending_questions"])
+    qs = " ".join(final["pending_questions"]).lower()
+    assert all(w in qs for w in ("old", "sex", "tall", "weight"))  # every missing essential is asked for
 
 
 async def test_complete_profile_is_assessed_not_clarified(run):

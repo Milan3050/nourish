@@ -158,9 +158,11 @@ def test_profile_facts_convert_units_and_reject_unstated_numbers():
     p = res["profile"]
     assert (p["age"], p["sex"], p["height_cm"], p["weight_kg"]) == (34, "female", 162.6, 68.0)
     assert not res["rejected"]
-    guessed = record_profile_facts({}, {"age": 30, "weight_kg": 70, "goal": "make a plan"}, "make me a plan")
+    guessed = record_profile_facts({}, {"age": 30, "sex": "female", "weight_kg": 70, "goal": "make a plan"},
+                                   "make me a plan")
     assert guessed["profile"]["age"] is None and guessed["profile"]["weight_kg"] is None
-    assert set(guessed["rejected"]) == {"age", "weight_kg", "goal"}
+    assert guessed["profile"]["sex"] is None
+    assert set(guessed["rejected"]) == {"age", "sex", "weight_kg", "goal"}
 
 
 # ---- planner tools ---------------------------------------------------------------------------------

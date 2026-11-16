@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -37,6 +38,8 @@ STAPLES = {
           "potato raw, broccoli raw, spinach raw, banana raw, apple raw, peanut butter, almonds",
 }
 
+ESSENTIAL_KEYWORDS = {"age": r"\bage\b|\bold\b", "sex": r"\bsex\b|gender|male|female",
+                      "height_cm": r"height|tall", "weight_kg": r"weigh"}
 ESSENTIAL_QUESTIONS = {
     "age": "How old are you?",
     "sex": "What is your sex (male or female)? It changes the energy equation.",
@@ -163,10 +166,12 @@ async def health_assessment(state: NIPState) -> dict:
         upd["pending_questions"] = []
     if sub and not sub.profile_complete:
         upd["pending_questions"] = sub.questions_for_user
-    if not ctx.get("assessment") and not upd.get("pending_questions"):
+    if not ctx.get("assessment"):  # ask for exactly what the calculator needs, whatever the agent wrote
         missing = required_missing(UserProfile.model_validate(ctx["profile"]))
-        if missing:  # the agent failed without asking: ask for exactly what the calculator needs
-            upd["pending_questions"] = [ESSENTIAL_QUESTIONS[f] for f in missing]
+        asked = " ".join(upd.get("pending_questions") or []).lower()
+        upd["pending_questions"] = [*(upd.get("pending_questions") or []),
+                                    *(ESSENTIAL_QUESTIONS[f] for f in missing
+                                      if not re.search(ESSENTIAL_KEYWORDS[f], asked))]
     return upd
 
 

@@ -90,6 +90,8 @@ class ProfileFacts(BaseModel):
 GROUNDED_NUMBERS = ("age", "height_cm", "height_ft", "height_in", "weight_kg", "weight_lb",
                     "target_weight_kg", "target_weight_lb", "timeline_weeks")
 LB_TO_KG = 0.45359237
+SEX_WORDS = re.compile(r"\b(male|female|man|woman|boy|girl|guy|lady|m|f|he|she|him|her|husband|wife|mother|"
+                       r"father|mom|dad|son|daughter|pregnant)\b", re.I)
 
 
 def _stated(value: float, text_numbers: set[float]) -> bool:
@@ -110,6 +112,8 @@ def record_profile_facts(profile: dict, facts: dict, user_text: str) -> dict:
         if k in facts and not _stated(float(facts[k]), text_nums):
             rejected[k] = (f"{facts.pop(k)} is not a number the user stated. Pass values in the user's own units "
                           "(weight_lb, height_ft/height_in); if they did not say it, ask instead of guessing")
+    if "sex" in facts and not profile.get("sex") and not SEX_WORDS.search(user_text):
+        rejected["sex"] = f"{facts.pop('sex')!r} is not stated by the user; ask instead of guessing"
     if "height_ft" in facts or "height_in" in facts:
         facts["height_cm"] = round(facts.pop("height_ft", 0) * 30.48 + facts.pop("height_in", 0) * 2.54, 1)
     for unit in ("weight", "target_weight"):

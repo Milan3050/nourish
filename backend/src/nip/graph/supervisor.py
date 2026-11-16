@@ -193,6 +193,9 @@ def _enforce_once(state: dict, nxt: str) -> tuple[str, str | None]:
             return "meal_planning", "latest plan was rejected; revise it before answering"
     if nxt == "health_assessment" and health_tries >= 2:
         return "clarify" if state.get("pending_questions") else "recommendation", "health assessment already tried twice"
+    evidence_now = [e for e in state.get("evidence") or [] if e.get("turn") == state.get("turn")]
+    if nxt == "nutrition_knowledge" and evidence_now and all(e.get("sufficient") for e in evidence_now):
+        return "recommendation", "this turn's evidence questions are already answered with citations"
     if nxt == "nutrition_knowledge" and _ran_this_turn(state, "nutrition_knowledge") >= 2:
         return "recommendation", "knowledge search already ran twice this turn"
     return nxt, None
