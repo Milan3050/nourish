@@ -24,7 +24,7 @@ from nip.agents.base import AgentResult
 from nip.domain.models import Citation, Recommendation, RiskFlag, UserProfile
 from nip.graph.state import NIPState
 from nip.graph.supervisor import enforce, fallback_decision, llm_decide
-from nip.security.guard import BLOCKED_RESPONSES, check_input
+from nip.security.guard import BLOCKED_RESPONSES, check_input, check_output
 from nip.tools.energy import required_missing
 from nip.tools.foods import get_food_db, request_exclusions
 
@@ -210,7 +210,9 @@ async def nutrition_knowledge(state: NIPState) -> dict:
         items = []
         for it in res.output.items:
             cits = [Citation(**ctx["retrieved"][c]).model_dump() for c in it.cited_chunk_ids if c in ctx["retrieved"]]
-            items.append({"question": it.question, "answer": it.answer, "citations": cits,
+            answer = it.answer if not check_output(it.answer) else \
+                "This touches on medicines, diagnosis or treatment; see the cited source and ask your doctor."
+            items.append({"question": it.question, "answer": answer, "citations": cits,
                           "sufficient": it.sufficient and bool(cits), "turn": state.get("turn")})
         upd["evidence"] = items
     return upd
@@ -334,6 +336,15 @@ async def recommendation(state: NIPState) -> dict:
     else:  # the agent could not produce an accepted answer: compose one from validated context only
         rec = fallback_answer(h, showable, ctx["evidence"], planner_ran, bool(state.get("plan_requested")))
         status = "answered"
+    # Final output gate, whatever wrote the answer: banned content (medication changes, cures, diagnoses,
+    # guarantees) never reaches the user.
+    banned = check_output(" ".join([rec.headline, rec.summary, *rec.key_points, *rec.tips]))
+    if banned:
+        log.warning("output.blocked", reasons=banned)
+        rec = Recommendation(headline="Please check this with your doctor",
+                             summary="I can't advise on this safely. Questions about medicines, diagnoses or "
+                                     "treatment belong with your doctor or pharmacist. I can help with food choices "
+                                     "that fit the plan they give you.", citations=rec.citations)
     if h and h.get("escalation_required"):
         rec.key_points = ["Because of your health situation, please review any diet change with a doctor "
                           "or registered dietitian.", *rec.key_points]
@@ -351,8 +362,9 @@ def fallback_answer(health: dict | None, plan: dict | None, evidence: list[dict]
 
     Built only from validated state (risk flags, the validated plan's computed totals, cited evidence),
     so it carries no model-written claims."""
-    cites = [Citation(**c) for e in evidence if e.get("sufficient") for c in e["citations"]]
-    answers = [e["answer"] for e in evidence if e.get("sufficient")]
+    usable = [e for e in evidence if e.get("sufficient") and not check_output(e["answer"])]
+    cites = [Citation(**c) for e in usable for c in e["citations"]]
+    answers = [e["answer"] for e in usable]
     if health and health.get("escalation_required"):
         answers = [a for a in answers if not specs.INTAKE_TARGET.search(a)]  # safe mode: no numeric targets
         why = "; ".join(f["message"] for f in health.get("risk_flags", []) if f["severity"] == "critical")

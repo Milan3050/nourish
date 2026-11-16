@@ -316,3 +316,24 @@ async def test_failed_recommendation_falls_back_to_validated_context(run):
     assert final["status"] == "answered" and rec["headline"].startswith("Please plan this with your doctor")
     assert "Kidney disease" in rec["summary"]
     assert [r["status"] for r in final["agent_runs"] if r["agent"] == "recommendation"] == ["failed"]
+
+
+async def test_fallback_and_final_gate_never_show_banned_output(run):
+    class Unsafe(World):
+        def nutrition(self, messages):
+            res = tool_results(messages, "search_guidelines")
+            if not res:
+                return call("search_guidelines", query="metformin low carb")
+            cid = res[-1]["results"][0]["chunk_id"]
+            return call("submit_result", items=[{"question": "metformin?", "answer": "You can stop taking metformin.",
+                                                 "cited_chunk_ids": [cid], "sufficient": True}])
+
+        def recommendation(self, messages):  # never passes its checks -> deterministic fallback
+            return call("submit_result", headline="x", summary="You should stop taking your metformin.")
+
+    w = Unsafe(VEG_PROFILE, "IN-L003", "IN-A015", [])
+    w.supervisor_script = ["nutrition_knowledge", "recommendation"]
+    final, _, _ = await run(w, "Should I stop my metformin on low carb?", profile=VEG_PROFILE)
+    from nip.security.guard import check_output
+    rec = final["recommendation"]
+    assert final["status"] == "answered" and not check_output(" ".join([rec["headline"], rec["summary"]]))
