@@ -165,7 +165,8 @@ async def save_profile(user: str, profile: dict) -> None:
 
 @app.get("/api/profile")
 async def get_profile(user: str = Depends(current_user)) -> dict:
-    return {"profile": await load_profile(user)}
+    p = await load_profile(user)  # validated, so profiles saved before newer fields get their defaults
+    return {"profile": UserProfile.model_validate(p).model_dump(mode="json") if p else None}
 
 
 @app.put("/api/profile")

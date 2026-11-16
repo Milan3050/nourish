@@ -9,13 +9,13 @@ const SUGGESTIONS: Record<Region, string[]> = {
   IN: [
     'Plan 3 days of high-protein vegetarian meals for fat loss',
     'Is creatine safe for me?',
-    'Swap dinner on day 2 for something without paneer',
+    'Build me a meal plan and a 3-day workout plan to gain muscle',
     'What should I eat to manage blood sugar?',
   ],
   US: [
     'Plan 3 days of meals to help me build muscle',
     'Can I eat grapefruit on simvastatin?',
-    'Make tomorrow a high-fiber day',
+    'Give me a 4-day gym workout plan',
     'How much protein do I need?',
   ],
 }

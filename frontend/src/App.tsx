@@ -11,6 +11,7 @@ import { Chat } from './components/Chat'
 import { EvidencePanel, PlanPanel, TargetsPanel, WorkoutPanel } from './components/Panels'
 import { Onboarding } from './components/Onboarding'
 import { PlanActions } from './components/PlanActions'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { RunsPage } from './pages/RunsPage'
 import { PlansPage } from './pages/PlansPage'
 import { CalendarPage } from './pages/CalendarPage'
@@ -240,11 +241,13 @@ function Shell({ profile, name, onEditProfile, onProfile }: {
         <main className="flex-1 min-h-0 overflow-y-auto scroll-thin">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
             <h1 className="font-display text-3xl font-semibold mt-0 mb-5">{title}</h1>
-            {page === 'plans' && <PlansPage />}
-            {page === 'calendar' && <CalendarPage />}
-            {page === 'goals' && <GoalsPage profile={profile} />}
-            {page === 'runs' && <RunsPage />}
-            {page === 'profile' && <ProfilePage profile={profile} name={name} health={health} onEdit={onEditProfile} onSaved={onProfile} />}
+            <ErrorBoundary key={page} label={title ?? page}>
+              {page === 'plans' && <PlansPage />}
+              {page === 'calendar' && <CalendarPage />}
+              {page === 'goals' && <GoalsPage profile={profile} />}
+              {page === 'runs' && <RunsPage />}
+              {page === 'profile' && <ProfilePage profile={profile} name={name} health={health} onEdit={onEditProfile} onSaved={onProfile} />}
+            </ErrorBoundary>
           </div>
         </main>
       )}

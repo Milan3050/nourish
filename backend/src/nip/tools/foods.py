@@ -268,8 +268,8 @@ def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_
 
     p_lo, p_hi = 0.98 * protein_g, max(protein_max or 0, 1.02 * protein_g)
 
-    def day_ok(x: dict[int, float]) -> bool:  # kcal on target, protein inside its acceptable range
-        return abs(total("kcal", x) - kcal) <= 0.02 * kcal and p_lo <= total("protein_g", x) <= p_hi
+    def day_ok(x: dict[int, float]) -> bool:  # kcal on target, protein inside its range with room for rounding
+        return abs(total("kcal", x) - kcal) <= 0.02 * kcal and 1.01 * p_lo <= total("protein_g", x) <= 0.97 * p_hi
 
     def meals_ok(x: dict[int, float]) -> bool:
         return all(abs(sum(per_g["kcal"][i] * x[i] for i in idx if meal_of[i] == m) - t) <= 0.15 * t
@@ -282,7 +282,8 @@ def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_
     # Most complete first. Balanced meals and fat matter more than hitting protein to the gram, so a set
     # with protein pinned is tried before the same set with protein free inside its range.
     split = len(meals) > 1
-    edges = [(per_g["protein_g"], 0.99 * p_hi), (per_g["protein_g"], 1.01 * p_lo)]  # protein at a range edge
+    # protein just inside a range edge; the margin absorbs rounding portions to 5 g
+    edges = [(per_g["protein_g"], 0.96 * p_hi), (per_g["protein_g"], 1.03 * p_lo)]
     attempts = ([(per_meal + prot + fat, True), (per_meal + fat, True), (per_meal + prot, True), (per_meal, True),
                  (per_meal + edges[:1], True), (per_meal + edges[1:], True)] if split else []) + \
         [(day + prot + fat, False), (day + fat, False), (day + prot, False), (day, False)]

@@ -17,7 +17,10 @@ function Row({ k, v }: { k: string; v: string | number | null | undefined }) {
 export function ProfilePage({ profile, name, health, onEdit, onSaved }: {
   profile: Profile; name: string; health: Health | null; onEdit: () => void; onSaved: (p: Profile) => void
 }) {
-  const [p, setP] = useState(profile)
+  // Profiles saved before the training fields existed lack them: fill the defaults.
+  const [p, setP] = useState<Profile>({ ...profile, equipment: profile.equipment ?? ['none'], injuries: profile.injuries ?? [],
+    training_days_per_week: profile.training_days_per_week ?? 3, session_minutes: profile.session_minutes ?? 45,
+    experience: profile.experience ?? 'beginner' })
   const [saved, setSaved] = useState<string | null>(null)
   const [totals, setTotals] = useState<{ runs: number; cost_usd: number; reference_cost_usd: number; tokens: number } | null>(null)
   useEffect(() => { api.runs().then(r => setTotals(r.total)).catch(() => {}) }, [])
@@ -48,9 +51,9 @@ export function ProfilePage({ profile, name, health, onEdit, onSaved }: {
           <Row k="Age" v={profile.age} /><Row k="Sex" v={profile.sex} />
           <Row k="Height" v={profile.height_cm ? `${Math.round(profile.height_cm)} cm` : null} /><Row k="Weight" v={profile.weight_kg ? `${profile.weight_kg} kg` : null} />
           <Row k="Activity" v={label(profile.activity)} /><Row k="Diet" v={profile.diet_pattern} />
-          <Row k="Meals a day" v={profile.meals_per_day} /><Row k="Religious rules" v={profile.religious_rules.map(label).join(', ')} />
-          <Row k="Allergies" v={profile.allergies.join(', ')} /><Row k="Conditions" v={profile.conditions.join(', ')} />
-          <Row k="Medications" v={profile.medications.join(', ')} /><Row k="Target weight" v={profile.target_weight_kg ? `${profile.target_weight_kg} kg` : null} />
+          <Row k="Meals a day" v={profile.meals_per_day} /><Row k="Religious rules" v={(profile.religious_rules ?? []).map(label).join(', ')} />
+          <Row k="Allergies" v={(profile.allergies ?? []).join(', ')} /><Row k="Conditions" v={(profile.conditions ?? []).join(', ')} />
+          <Row k="Medications" v={(profile.medications ?? []).join(', ')} /><Row k="Target weight" v={profile.target_weight_kg ? `${profile.target_weight_kg} kg` : null} />
         </dl>
       </section>
       <section className="rounded-2xl border border-line bg-plum p-4 space-y-4">

@@ -63,7 +63,7 @@ function Bowl({ k, view, verdict }: { k: AgentKey; view: AgentView; verdict?: st
         cx={x} cy={y} fill={color}
         initial={false}
         animate={{ r: r * Math.sqrt(fill) * 0.92, opacity: fill ? (view.status === 'done' ? 0.9 : 0.75) : 0 }}
-        transition={{ type: 'spring', stiffness: 120, damping: 16 }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}  // a spring overshoots below r = 0, which SVG rejects
       />
       {active && !reduce && (
         <motion.circle
