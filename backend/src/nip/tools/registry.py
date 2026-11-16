@@ -69,8 +69,11 @@ def scale_portions(meals: list[dict], kcal: float, protein_g: float, fat_g: floa
         advice.append("Protein is short: add or swap in a protein-dense food (dal, paneer, soya, tofu, eggs, "
                       "chicken, fish, Greek yogurt).")
     if pct["protein_g"] is not None and pct["protein_g"] > 110:
-        advice.append("Protein is too high for the energy target: replace some protein-dense food with grains, "
-                      "fruit or vegetables.")
+        dense = sorted({p.food_name for p in scaled if (f := db.get(p.food_code)) and f.per100g["kcal"]
+                        and 4 * f.per100g["protein_g"] / f.per100g["kcal"] >= 0.3})
+        advice.append(f"Protein is too high for the energy target: use less of {', '.join(dense[:4]) or 'the protein foods'} "
+                      "and add energy-dense grains, starches or fats (rice, pasta, bread, oats, potato, banana, "
+                      "nuts, milk, cooking oil).")
     if advice:
         res["advice"] = " ".join(advice) + " Then call scale_portions again."
     return res

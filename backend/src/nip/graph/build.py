@@ -199,6 +199,11 @@ async def meal_planning(state: NIPState) -> dict:
         revising = f"\nREVISION: your previous plan was rejected. Fix these:\n{_j(viol[:15])}\nPrevious plan:\n{_j(plans[-1]['days'])}"
     elif plans:
         revising = f"\nThe user's current plan (modify only what the request asks):\n{_j(plans[-1]['days'])}"
+    failed = [r for r in state.get("agent_runs") or []
+              if r["agent"] == "meal_planning" and r.get("turn") == state.get("turn") and r["status"] == "failed"]
+    if failed and failed[-1].get("error"):
+        revising += (f"\nYour previous attempt this turn did not finish: {failed[-1]['error'][:900]}\n"
+                     "Choose a different mix of foods that fixes this.")
     h = ctx["health"]
     evidence = [{"q": e["question"], "a": e["answer"]} for e in ctx["evidence"]][-6:]
     brief = (_common_brief(state) +

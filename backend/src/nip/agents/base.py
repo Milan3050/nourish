@@ -10,6 +10,7 @@ check is returned to the agent as feedback and it keeps working, within a step b
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -27,6 +28,7 @@ from nip.llm import get_chat_model
 log = structlog.get_logger("nip.agent")
 Emit = Callable[[dict], None]
 MAX_TOOL_RESULT_CHARS = 6000
+ADVICE = re.compile(r'"advice":\s*"([^"]{1,300})"')
 
 SHARED_RULES = """
 Operating rules (always apply):
@@ -89,7 +91,8 @@ class GoalAgent:
 
         async def think(state: AgentRun) -> dict:
             if state["steps"] >= self.max_steps:
-                return {"status": "failed", "feedback": [f"step budget of {self.max_steps} exhausted"]}
+                return {"status": "failed",
+                        "feedback": [f"step budget of {self.max_steps} exhausted", *state["feedback"][:6]]}
             msg = await model.ainvoke(state["messages"])
             if not isinstance(msg, AIMessage):  # e.g. ChatMessage when a local server sends an odd role
                 msg = AIMessage(content=str(msg.content or ""), usage_metadata=getattr(msg, "usage_metadata", None))
@@ -147,13 +150,16 @@ class GoalAgent:
                         content = json.dumps({"error": str(e)[:500]})
                 ms = round((time.perf_counter() - t0) * 1000, 1)
                 self._event("tool_result", tool=name, ms=ms, preview=content[:240])
+                feedback += [f"{name}: {a}" for a in dict.fromkeys(ADVICE.findall(content))][:3]
                 if len(content) > MAX_TOOL_RESULT_CHARS:
                     content = content[:MAX_TOOL_RESULT_CHARS] + '... [truncated]'
                 out_msgs.append(ToolMessage(content, tool_call_id=cid, name=name))
             if self._pending_note and out_msgs and output is None:
                 out_msgs[-1].content = f"{out_msgs[-1].content}\n{self._pending_note}"
             self._pending_note = None
-            upd: dict[str, Any] = {"messages": out_msgs, "feedback": feedback}
+            upd: dict[str, Any] = {"messages": out_msgs}
+            if feedback:  # keep the latest rejection / tool advice so a failed run can say why
+                upd["feedback"] = feedback
             if output is not None:
                 upd |= {"output": output, "status": "done"}
             return upd
