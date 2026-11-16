@@ -3,8 +3,9 @@
 ## 1. What it does
 
 The platform produces personalised nutrition guidance and meal plans from a person's health data,
-preferences and goals. Five specialist agents and a supervisor cooperate on each request. Two rules
-shape the design:
+preferences and goals, plus workout plans, and keeps them as saved plans on a calendar with goals and a
+full run history (tokens, cost, agent logs). Six specialist agents (the five required plus Workout
+Planning) and a supervisor cooperate on each request. Two rules shape the design:
 
 1. **Agents decide, tools compute.** Agents are goal-driven: each has a goal, tools and a typed result
    it must submit, and it decides which tools to call and when it is done. Every number that matters
@@ -21,6 +22,7 @@ shape the design:
 | "Swap dinner on day 2" | Meal planning → Validation → Recommendation (profile reused) |
 | "I have kidney disease, give me a high-protein plan" | Health (escalates) → Recommendation in safe mode; the planner is blocked |
 | "Make me a meal plan" (no body data) | Health → Clarify (asks for age, sex, height, weight) |
+| "Build me a workout and meal plan" | Health → Meal planning ⇄ Validation → Workout planning → Recommendation |
 
 ## 2. System overview
 
@@ -70,7 +72,8 @@ the choice is stable, so one rule cannot route around another:
 | Escalation (the above, eating-disorder risk, weight loss while underweight) | planner blocked; safe-mode answer |
 | Unvalidated plans are never shown | recommendation → validation |
 | Rejected plans are revised, at most 3 times | recommendation → meal_planning, then give up honestly |
-| A requested plan is attempted before answering | recommendation → meal_planning (intent detected in code) |
+| A requested plan or workout is attempted before answering | recommendation → meal_planning / workout_planning (intent detected in code) |
+| A workout needs a health profile; escalation blocks it | workout_planning → health_assessment / recommendation |
 | No redundant work | no re-planning after PASS; no knowledge search when this turn's evidence is sufficient; clarify only for missing essentials |
 | Step and token budgets per request | forced answer with what is available |
 | No repeated loops | an agent can't run more than twice in one turn |
@@ -93,7 +96,8 @@ rejection to the next attempt.
 |---|---|---|---|
 | Health Assessment | An accurate, safe health profile | `update_profile` (converts lb, ft/in), `assess_energy`, `search_guidelines` | energy was computed by the tool, or questions are listed for missing essentials; a body number or sex the user never stated is rejected by the tool |
 | Nutrition Knowledge (agentic RAG) | Answer evidence questions from vetted sources | `search_guidelines` (rewrites, splits, retries) | every cited chunk was actually retrieved in this run; uncited answers are marked insufficient |
-| Meal Planning | A plan that meets targets and constraints | `search_foods` (batch), `scale_portions` | every food code exists and is allowed; unique days with a full set of meals; dish names match ingredients; kcal and protein within ±10% each day |
+| Meal Planning | A plan that meets targets and constraints | `search_foods` (batch), `scale_portions` | every food code exists and is allowed; unique days with a full set of meals; dish names match ingredients; kcal ±10%, protein between target −10% and a computed cap |
+| Workout Planning | A weekly plan that fits goal, schedule, equipment, level, injuries | `search_exercises`, `check_workout` | the workout rule engine passes: training days, session time, weekly sets per muscle within evidence bands, contraindications; minutes and kcal (MET) computed |
 | Validation | Decide if the plan is safe to show | `run_safety_rules`, `search_guidelines` | the rule engine ran; the verdict is never more lenient than the rules |
 | Recommendation | A personal, cited, grounded answer | `search_guidelines` | citations exist, every number with a unit appears in the context, no banned claims |
 
@@ -105,9 +109,18 @@ day's energy when the mix allows, solved in closed form (Lagrange) with portions
 planner's and 5-500 g. When a submission fails only on targets, the acceptance check returns the
 rescaled days as feedback; the agent still submits, and the ±10% check is never relaxed.
 
+**Protein is a range.** The energy tool sets a cap of min(2.2 g/kg, 35% of energy) (the target for
+kidney disease); below target −10% or above the cap is rejected. If the planner runs out of steps after
+its own check handed back a rescaled plan that passes every check, that plan is accepted and logged.
+
 **Request constraints are code, not prompts.** Intake extracts foods the message rules out ("without
-paneer") when they name a food in the user's table; they become this turn's dislikes for search, the
-planner's check and the rule engine. It also records whether a plan was requested.
+paneer"), the number of days, and whether a plan, a workout or a healthy-weight answer was requested;
+exclusions become this turn's dislikes for search, checks and the rule engine. "How much should I weigh"
+is answered from the tool's BMI and healthy-weight range (Indian cut-offs for IN).
+
+**Product layer.** Each turn is stored as a run (latency, tokens per model, cost from a price table with a
+hosted-model estimate, agent runs, decisions, full event log). Only plans that passed their checks can be
+saved (taken from server state); saved plans go on a calendar; user goals are passed to the agents.
 
 **State.** A typed `NIPState` holds the durable context (profile, health assessment, evidence, plan
 versions, validation reports) and per-turn orchestration (objectives, budgets, decisions, agent runs).

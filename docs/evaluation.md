@@ -90,7 +90,7 @@ not be stored unredacted), and a "cure guaranteed" jailbreak. The release bar is
 | Run 3 | 9/10: medication-change text reached a fallback answer (fixed, see above) |
 | After the fix (final) | **10/10**, workflow completion 1.0 |
 
-## Deterministic tests (`make test`, 68 tests, no LLM)
+## Deterministic tests (`make test`, 76 tests, no LLM)
 
 Energy maths against reference values, food filtering for every diet pattern, the rule engine (allergens,
 unknown foods, interactions, escalation), the portion solver, profile-fact grounding and unit conversion,
@@ -98,6 +98,15 @@ request exclusions, retrieval on an embedded Postgres, the MCP server against th
 (including the DNS-rebinding Host check), the API end to end with streaming, and the orchestration with a
 scripted model: routing, every invariant, the reject-and-revise loop, escalation, plan edits, honest
 failure answers, blocked inputs and multi-turn memory.
+
+## After the evaluation runs
+
+Features added after the measured runs: the Workout Planning agent and its rule engine, protein as a range
+with a computed cap (the most common planner failure in the runs was "protein above target +10%"),
+accepting the planner's own checked rescale at budget end, computed healthy-weight answers, and the
+product layer (runs with cost, saved plans, calendar, goals). A live session after these changes
+delivered a validated meal plan and a checked workout in 143 s (`docs/screenshots`). The scenario
+suite has not been re-run since; re-running it, with workout scenarios added, is the next step.
 
 ## In CI and production
 

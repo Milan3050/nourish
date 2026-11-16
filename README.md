@@ -1,9 +1,12 @@
 # Thali: Nutrition Intelligence Platform
 
-Personalised nutrition guidance and meal plans from a team of goal-driven AI agents. A supervisor routes
+Personalised nutrition guidance, meal plans and workout plans from a team of goal-driven AI agents. A supervisor routes
 each request to five specialists (health assessment, nutrition knowledge with agentic RAG, meal planning,
 validation and recommendation), and no plan reaches the user until it passes deterministic safety rules and
 an independent validation agent. Food data covers India (IFCT 2017) and the US (USDA SR28), selected by region.
+
+The app also keeps saved plans on a calendar, tracks goals, and records every run with its agents,
+timings, tokens and cost. Screenshots of a real local-model session: [docs/screenshots](docs/screenshots/README.md).
 
 - **Architecture:** [docs/architecture.md](docs/architecture.md)
 - **Evaluation framework:** [docs/evaluation.md](docs/evaluation.md)
@@ -38,7 +41,7 @@ it). Set `NIP_API_HOST_PORT` if 8000 is taken on the host.
 ## Tests and evaluation
 
 ```bash
-make test           # 68 deterministic tests: tools, rules, retrieval, MCP, API, orchestration. No LLM needed.
+make test           # 76 deterministic tests: tools, rules, retrieval, MCP, API, orchestration. No LLM needed.
 make eval-offline   # retrieval metrics: Recall@K, Precision@K, MRR, nDCG for dense / sparse / hybrid
 make eval           # agent scenarios + red team against the configured LLM
 cd backend && uv run python -m nip.eval.run --suite agents --judge   # + faithfulness, groundedness, relevance
