@@ -311,3 +311,16 @@ def test_planner_folds_one_meal_days_into_one_day():
     out = agent.prepare({"days": [{"day": 1, "meals": [meal("dinner")]}, {"day": 1, "meals": [meal("breakfast")]},
                                   {"day": 1, "meals": [meal("lunch")]}]})
     assert len(out["days"]) == 1 and [m["slot"] for m in out["days"][0]["meals"]] == ["breakfast", "lunch", "dinner"]
+
+
+def test_safe_mode_answers_carry_no_intake_targets():
+    from nip.agents.specs import RecommendationSubmission, recommendation_agent
+
+    profile = base_profile(conditions=["ckd stage 3"])
+    health = assess(profile).model_dump()
+    assert health["escalation_required"]
+    agent = recommendation_agent({"profile": profile.model_dump(mode="json"), "health": health, "retrieved": {},
+                                  "evidence": [], "plan_shown": False})
+    bad = RecommendationSubmission(headline="Protein and CKD", summary="Aim for 1.6 g/kg of protein per day.")
+    ok = RecommendationSubmission(headline="Protein and CKD", summary="Ask a renal dietitian to set your protein.")
+    assert any("Safe mode" in e for e in agent.check(bad)) and agent.check(ok) == []

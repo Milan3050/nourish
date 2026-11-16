@@ -354,6 +354,7 @@ def fallback_answer(health: dict | None, plan: dict | None, evidence: list[dict]
     cites = [Citation(**c) for e in evidence if e.get("sufficient") for c in e["citations"]]
     answers = [e["answer"] for e in evidence if e.get("sufficient")]
     if health and health.get("escalation_required"):
+        answers = [a for a in answers if not specs.INTAKE_TARGET.search(a)]  # safe mode: no numeric targets
         why = "; ".join(f["message"] for f in health.get("risk_flags", []) if f["severity"] == "critical")
         return Recommendation(
             headline="Please plan this with your doctor or a registered dietitian",

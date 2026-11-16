@@ -526,6 +526,11 @@ CLAIMS_CHANGE = re.compile(r"\b(?:is now|are now|now (?:has|includes|features)|h
                            r"changed|updated|revised|added)|have been (?:replaced|removed|swapped|changed|updated|"
                            r"added)|(?:i|we)(?:'ve| have)? (?:replaced|swapped|removed|changed|updated|revised))\b", re.I)
 FOOD_CODE = re.compile(r"^(?:IN|US)-[A-Z0-9]+$")
+# Quantitative intake targets ("1.6 g/kg", "120 g of protein a day", "1800 kcal"): not allowed in safe mode,
+# where the person needs clinician-set targets (kidney disease, pregnancy, minors, T1D, eating disorders).
+INTAKE_TARGET = re.compile(r"\d+(?:\.\d+)?\s*(?:-|to)?\s*\d*(?:\.\d+)?\s*(?:g|grams?)\s*(?:/|per)\s*(?:kg|kilo)"
+                           r"|\d[\d,]*\s*(?:kcal|calories)"
+                           r"|\d+\s*(?:g|grams?)\s+(?:of\s+)?(?:protein|carbs?|carbohydrates?|fat)\b", re.I)
 UNIT_NUMBER = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(kcal|calories|g\b|grams|mg\b|µg|mcg)", re.I)
 
 
@@ -586,6 +591,9 @@ def recommendation_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         text = " ".join([sub.headline, sub.summary, *sub.key_points, *sub.tips])
         for why in check_output(text):
             errs.append(f"Not allowed: the text {why}. Rephrase.")
+        if (ctx.get("health") or {}).get("escalation_required") and INTAKE_TARGET.search(text):
+            errs.append(f"Safe mode: this person needs clinician-set targets, so give no numeric intake targets "
+                        f"('{INTAKE_TARGET.search(text).group(0)}'). Give general guidance and advise a clinician.")
         if ctx.get("change_failed") and CLAIMS_CHANGE.search(text):
             errs.append(f"The requested change was NOT made (no revised plan passed validation), but the text "
                         f"says it was ('{CLAIMS_CHANGE.search(text).group(0)}'). Say the change could not be made.")
