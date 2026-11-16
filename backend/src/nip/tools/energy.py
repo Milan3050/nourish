@@ -202,9 +202,13 @@ def assess(p: UserProfile) -> HealthProfile:
         cap = min(PROTEIN_MAX_G_PER_KG * p.weight_kg, PROTEIN_MAX_ENERGY_FRACTION * target / 4)
         limits.protein_g_max = round(max(protein_g * 1.1, cap), 0)
 
+    h2 = (p.height_cm / 100) ** 2
+    bmi_hi = 22.9 if p.region == Region.IN else 24.9
     return HealthProfile(
         bmr_kcal=base,
         tdee_kcal=maintenance,
+        bmi=body_mass_index,
+        healthy_weight_kg=[round(18.5 * h2, 1), round(bmi_hi * h2, 1)],
         targets=MacroTargets(kcal=round(target, 0), protein_g=protein_g, carbs_g=carbs_g,
                              fat_g=fat_g, fiber_g=fiber_g),
         limits=limits,

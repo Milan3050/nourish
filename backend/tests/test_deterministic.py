@@ -370,3 +370,9 @@ def test_bullets_that_repeat_the_summary_are_dropped():
     pts = ["Your goal is to gain muscle and build weight.", "Eat a protein source at every meal.",
            "Aim for protein intakes of 1.4 to 2.0 g per kg daily."]
     assert distinct_points(summary, pts) == ["Eat a protein source at every meal."]
+
+
+def test_healthy_weight_range_is_computed_per_region():
+    h_in = assess(base_profile(height_cm=180, weight_kg=60, region=Region.IN))
+    h_us = assess(base_profile(height_cm=180, weight_kg=60, region=Region.US))
+    assert h_in.bmi == 18.5 and h_in.healthy_weight_kg == [59.9, 74.2] and h_us.healthy_weight_kg == [59.9, 80.7]

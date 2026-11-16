@@ -122,6 +122,9 @@ class HealthProfile(BaseModel):
 
     bmr_kcal: float
     tdee_kcal: float
+    bmi: float | None = None
+    # Healthy weight for this height: BMI 18.5-22.9 (Indian consensus, region IN) or 18.5-24.9 (WHO, US).
+    healthy_weight_kg: list[float] = []
     targets: MacroTargets
     limits: NutrientLimits = NutrientLimits()
     risk_flags: list[RiskFlag] = []
