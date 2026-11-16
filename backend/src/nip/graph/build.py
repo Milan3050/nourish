@@ -162,9 +162,12 @@ async def health_assessment(state: NIPState) -> dict:
         if any(f["code"] == "eating_disorder_risk" for f in flags):
             h["escalation_required"] = True
         h["risk_flags"] = list({f["code"]: f for f in flags}.values())
+        # Energy targets exist, so nothing essential is missing: the agent's questions become optional
+        # follow-ups for the answer instead of blocking it with a clarify turn.
+        h["follow_up_questions"] = sub.questions_for_user[:3] if sub else []
         upd["health"] = h
         upd["pending_questions"] = []
-    if sub and not sub.profile_complete:
+    elif sub and not sub.profile_complete:
         upd["pending_questions"] = sub.questions_for_user
     if not ctx.get("assessment"):  # ask for exactly what the calculator needs, whatever the agent wrote
         missing = required_missing(UserProfile.model_validate(ctx["profile"]))

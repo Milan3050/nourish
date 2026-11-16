@@ -106,7 +106,7 @@ class World:
         return call("submit_result", verdict=res[-1]["report"]["verdict"], summary="checked")
 
     def recommendation(self, messages):
-        return call("submit_result", headline="Your plan", summary="Here is your plan.", key_points=["Eat well"])
+        return call("submit_result", headline="Your answer", summary="Here is what fits your goals.", key_points=["Eat well"])
 
     def nutrition(self, messages):
         res = tool_results(messages, "search_guidelines")
@@ -188,6 +188,7 @@ async def test_escalation_blocks_planning(run):
     final, _, _ = await run(w, "I have kidney disease, give me a high protein plan", profile=w.profile_fields)
     assert not final.get("plans")
     assert any("escalation" in (d["override"] or "") for d in final["decisions"])
+    assert final["status"] == "answered"
     assert final["recommendation"]["key_points"][0].startswith("Because of your health situation")
 
 
@@ -257,3 +258,18 @@ async def test_passed_plan_is_not_replanned(run):
     final, _, _ = await run(w, "1-day plan please", profile=VEG_PROFILE)
     assert len(final["plans"]) == 1 and final["recommendation"]["plan"]
     assert final["decisions"][-1]["override"] == "this turn's plan already passed validation"
+
+
+async def test_optional_questions_do_not_block_an_assessed_profile(run):
+    class AsksAnyway(World):
+        def health(self, messages):
+            done = {m.name for m in messages if getattr(m, "name", None)}
+            if "assess_energy" not in done:
+                return call("assess_energy")
+            return call("submit_result", profile_complete=False, questions_for_user=["Which medications?"])
+
+    w = AsksAnyway({**VEG_PROFILE, "conditions": ["ckd"]}, "IN-L003", "IN-A015", [])
+    w.supervisor_script = ["recommendation", "clarify"]
+    final, _, _ = await run(w, "high protein plan please", profile=w.profile_fields)
+    assert final["status"] == "answered" and final["health"]["escalation_required"]
+    assert final["health"]["follow_up_questions"] == ["Which medications?"]
