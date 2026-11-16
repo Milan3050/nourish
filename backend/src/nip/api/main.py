@@ -357,7 +357,7 @@ class ScheduleRequest(BaseModel):
 
 @app.post("/api/calendar")
 async def schedule_plan(body: ScheduleRequest, user: str = Depends(current_user)) -> dict:
-    """Put a saved plan on the calendar: meal-plan days on consecutive dates (repeating for `weeks`),
+    """Put a saved plan on the calendar: meal-plan days on consecutive dates, repeating to fill `weeks`,
     workout sessions on their weekdays for `weeks` weeks from the start date."""
     plan = await S.store.get(user, "plan", body.plan_id)
     if not plan:
@@ -365,7 +365,7 @@ async def schedule_plan(body: ScheduleRequest, user: str = Depends(current_user)
     entries = []
     if plan["kind"] == "meal":
         days = plan["data"]["days"]
-        total = max(len(days), 7 * body.weeks) if body.weeks > 1 else len(days)
+        total = max(len(days), 7 * body.weeks)  # the plan's days repeat to fill the weeks
         for i in range(total):
             d = days[i % len(days)]
             entries.append({"date": (body.start_date + timedelta(days=i)).isoformat(), "day_index": i % len(days),

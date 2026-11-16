@@ -81,7 +81,7 @@ async def test_runs_plans_calendar_and_goals(client):
     assert (await client.post("/api/plans", json={"thread_id": "t9", "kind": "workout"}, headers=h)).status_code == 409
     sched = (await client.post("/api/calendar", json={"plan_id": plan["id"], "start_date": "2026-11-16", "weeks": 1},
                                headers=h)).json()["entries"]
-    assert [e["date"] for e in sched] == ["2026-11-16"]
+    assert [e["date"] for e in sched][:2] == ["2026-11-16", "2026-11-17"] and len(sched) == 7
     cal = (await client.get("/api/calendar?start=2026-11-01&end=2026-11-30", headers=h)).json()["entries"]
     done = (await client.patch(f"/api/calendar/{cal[0]['id']}", json={"done": True}, headers=h)).json()
     assert done["done"] is True

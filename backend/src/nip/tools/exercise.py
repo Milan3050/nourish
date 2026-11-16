@@ -135,8 +135,11 @@ def check_workout(profile: dict, workout: dict) -> dict:
             for m in r["major_muscles"]:
                 n = sets_by_muscle.get(m, 0)
                 if m not in trainable:
-                    add("no_safe_exercise", "info", f"{m}: no library exercise suits this person "
-                        f"({', '.join(p.injuries) or 'equipment/level'}); a physiotherapist can advise")
+                    add("no_safe_exercise", "info",
+                        f"{m}: no exercise in the library is advised with {', '.join(p.injuries)}; a physiotherapist "
+                        "can suggest alternatives" if p.injuries else
+                        f"{m}: no exercise in the library targets it with your equipment and level; more equipment "
+                        "(dumbbells, bands) would add options")
                 elif n < band[0] * (0.5 if goal != "muscle_gain" else 1):
                     add("weekly_volume", "warning" if goal != "muscle_gain" else "critical",
                         f"{m}: {n:.0f} sets a week; aim for {band[0]}-{band[1]}")

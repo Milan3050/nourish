@@ -100,7 +100,7 @@ export function GoalsPage({ profile }: { profile: Profile }) {
         </form>
         <div className="space-y-1.5">
           <p className="text-xs text-dim m-0">Suggestions from your profile</p>
-          {suggestions(profile).map(s => (
+          {suggestions(profile).filter(s => !goals?.some(g => g.title === s.title)).map(s => (
             <button key={s.title} onClick={() => add(s)}
               className="block w-full text-left text-sm rounded-xl border border-dashed border-line px-3 py-2 hover:border-turmeric">+ {s.title}</button>
           ))}
