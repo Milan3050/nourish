@@ -22,7 +22,9 @@ def configure_tracing() -> None:
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-    provider = TracerProvider(resource=Resource.create({"service.name": s.service_name}))
+    # openinference.project.name groups the traces into a named project in Phoenix
+    provider = TracerProvider(resource=Resource.create({"service.name": s.service_name,
+                                                        "openinference.project.name": s.service_name}))
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=s.otel_endpoint)))
     trace.set_tracer_provider(provider)
     # Hide prompt/response text from traces outside dev (health data); keep metadata and timings.

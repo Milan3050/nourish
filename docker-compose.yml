@@ -15,9 +15,13 @@ services:
       interval: 3s
       retries: 20
 
-  phoenix:  # OpenTelemetry trace UI for LLM, tool and agent spans
-    image: arizephoenix/phoenix:latest
-    ports: ["6006:6006"]
+  phoenix:  # OpenTelemetry trace UI for LLM, tool and agent spans (local dev only)
+    # Pinned (v21.1.0). Phoenix >= 21 enables auth by default and rejected every OTLP export with 401;
+    # this instance is local-only, so auth is off. Production uses an authenticated OTLP collector.
+    image: arizephoenix/phoenix@sha256:09ec48906c054a27dd09a88c8e6bcc24fe89649d3ecc94d3a8ed394e21279b31
+    environment:
+      PHOENIX_ENABLE_AUTH: "false"
+    ports: ["127.0.0.1:6006:6006"]
 
   mcp:
     profiles: [app]
