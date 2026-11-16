@@ -38,7 +38,7 @@ it). Set `NIP_API_HOST_PORT` if 8000 is taken on the host.
 ## Tests and evaluation
 
 ```bash
-make test           # 63 deterministic tests: tools, rules, retrieval, MCP, API, orchestration. No LLM needed.
+make test           # 68 deterministic tests: tools, rules, retrieval, MCP, API, orchestration. No LLM needed.
 make eval-offline   # retrieval metrics: Recall@K, Precision@K, MRR, nDCG for dense / sparse / hybrid
 make eval           # agent scenarios + red team against the configured LLM
 cd backend && uv run python -m nip.eval.run --suite agents --judge   # + faithfulness, groundedness, relevance
