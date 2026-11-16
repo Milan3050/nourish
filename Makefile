@@ -1,5 +1,5 @@
 # Nutrition Intelligence Platform - developer commands
-.PHONY: setup ollama-models infra index data retag mcp api web dev test lint eval eval-offline docker clean-db
+.PHONY: setup ollama-models pdf infra index data retag mcp api web dev test lint eval eval-offline docker clean-db
 
 BACKEND := cd backend &&
 # API port; e.g. `make dev API_PORT=8010` if 8000 is taken (the web dev proxy follows it)
@@ -63,3 +63,6 @@ docker:           ## everything in containers
 
 clean-db:
 	docker compose down -v
+
+pdf:              ## export docs/architecture.pdf (A4, no pandoc/LaTeX needed)
+	uv run --no-project --with markdown --with weasyprint python scripts/md2pdf.py docs/architecture.md docs/architecture.pdf

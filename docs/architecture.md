@@ -182,9 +182,23 @@ UI shows every agent hand-off, tool call, rejected submission, override and verd
 | Temporal (design, not MVP) | Durable long-running jobs (weekly re-planning, bulk re-evaluation) | Not needed for request/response turns |
 | Vite SPA | All logic lives in the Python service; no server rendering needed | Next.js would add a second server |
 
-## 8. Limits of the MVP
+## 8. Measured results and limits
 
-The guideline corpus consists of curated summaries, not full source documents. Plans use raw ingredients from
-the food tables, so composite dishes are built from their parts. A 7-8B local model is slower and weaker at
-tool use than hosted models; the acceptance checks and invariants keep its output safe, but it may need
-more revisions. Retrieval quality numbers depend on the embedding model; see `docs/evaluation.md`.
+On a local `qwen2.5:7b` (one 16 GB GPU), the final evaluation run met all expectations in 13 of 16
+scenarios; every safety, escalation and knowledge scenario passed in every run, the red team passes 10/10,
+and no unsafe food has been shown in any run. Retrieval: hybrid Recall@5 0.96, MRR 0.92 (dense alone MRR
+0.96). Details and the spread across runs are in `docs/evaluation.md`.
+
+- **The 7B planner is the weak point.** It delivers a validated plan for 30-60% of plan requests and
+  varies between runs; plan turns take 1-5 minutes. The checks keep it safe (failures end in an honest
+  answer, never an unvalidated plan), but a hosted model or a larger local one is needed for production
+  quality. Dish names and meal balance are the most visible weaknesses.
+- **Corpus.** The 31 guideline documents are curated summaries written for this project, with source and
+  URL, not the full source texts; they must be reviewed by a dietitian before real use.
+- **Food data.** IFCT 2017 is used through the open `ifct2017` packaging repository, which is AGPL-3.0
+  licensed (the data itself is NIN's); check the terms before commercial use. IFCT has only four dairy
+  entries (no curd or ghee) and botanical names (handled by a synonym map), so Indian plans are built from
+  raw ingredients. Allergen tags favour recall but are derived from names: a regression test exists for
+  the one miss found ('Ground nut').
+- **Evaluation scale.** 16 scenarios and 50 retrieval queries show the method, not production
+  confidence; the judge has not yet been calibrated against human labels.

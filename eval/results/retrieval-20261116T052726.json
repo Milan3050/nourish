@@ -1,0 +1,57 @@
+{
+  "n": 50,
+  "embeddings": "ollama",
+  "modes": {
+    "dense": {
+      "metrics": {
+        "recall@1": 0.697,
+        "recall@3": 0.943,
+        "recall@5": 0.97,
+        "recall@10": 0.98,
+        "precision@1": 0.92,
+        "precision@3": 0.467,
+        "precision@5": 0.292,
+        "precision@10": 0.148,
+        "ndcg@5": 0.94,
+        "mrr": 0.96,
+        "latency_ms_p50": 30.8,
+        "latency_ms_p95": 174.6
+      },
+      "misses": []
+    },
+    "sparse": {
+      "metrics": {
+        "recall@1": 0.517,
+        "recall@3": 0.827,
+        "recall@5": 0.92,
+        "recall@10": 0.97,
+        "precision@1": 0.68,
+        "precision@3": 0.4,
+        "precision@5": 0.272,
+        "precision@10": 0.146,
+        "ndcg@5": 0.803,
+        "mrr": 0.806,
+        "latency_ms_p50": 0.3,
+        "latency_ms_p95": 0.7
+      },
+      "misses": []
+    },
+    "hybrid": {
+      "metrics": {
+        "recall@1": 0.637,
+        "recall@3": 0.93,
+        "recall@5": 0.96,
+        "recall@10": 0.97,
+        "precision@1": 0.84,
+        "precision@3": 0.46,
+        "precision@5": 0.288,
+        "precision@10": 0.146,
+        "ndcg@5": 0.903,
+        "mrr": 0.917,
+        "latency_ms_p50": 29.0,
+        "latency_ms_p95": 33.9
+      },
+      "misses": []
+    }
+  }
+}

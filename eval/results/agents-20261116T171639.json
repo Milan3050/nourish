@@ -1,0 +1,630 @@
+{
+  "summary": {
+    "n": 16,
+    "success_rate": 0.812,
+    "workflow_completion_rate": 1.0,
+    "agent_failure_rate": 0.688,
+    "latency_s": {
+      "p50": 64.74,
+      "p95": 308.63
+    },
+    "agent_latency_s_p50": {
+      "health_assessment": 2.27,
+      "meal_planning": 41.17,
+      "validation": 25.84,
+      "recommendation": 2.97,
+      "nutrition_knowledge": 4.32
+    },
+    "avg_tokens": 142934,
+    "avg_revisions": 0.75,
+    "override_rate": 1.0,
+    "generation": {
+      "faithfulness": 0.69,
+      "groundedness_numeric": 0.867,
+      "groundedness_citations": 1.0,
+      "answer_relevance": 0.6
+    }
+  },
+  "cases": [
+    {
+      "id": "s01",
+      "name": "Indian vegetarian fat loss, peanut allergy",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 45.51,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "meal_planning",
+        "validation",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "validation"
+      ],
+      "agent_ms": {
+        "health_assessment": 1698.0,
+        "meal_planning": 11105.4,
+        "validation": 25838.0,
+        "recommendation": 2972.4
+      },
+      "tokens": 43652,
+      "overrides": [
+        "a meal plan needs a health profile first",
+        "the new plan must be validated before another revision",
+        "this turn's plan already passed validation"
+      ],
+      "revisions": 0,
+      "generation": {
+        "faithfulness": 0.333,
+        "unsupported_claims": [
+          "High protein intake for muscle building",
+          "Balanced fiber and healthy fats",
+          "Stay hydrated throughout the day",
+          "Adjust portion sizes based on personal preferences"
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": null,
+        "answer_relevance": 0.25
+      }
+    },
+    {
+      "id": "s02",
+      "name": "US omnivore muscle gain",
+      "passed": false,
+      "failures": [
+        "no validated plan returned"
+      ],
+      "status": "answered",
+      "latency_s": 205.09,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "meal_planning",
+        "meal_planning",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "meal_planning",
+        "meal_planning"
+      ],
+      "agent_ms": {
+        "health_assessment": 2319.7,
+        "meal_planning": 128881.3,
+        "recommendation": 3583.4
+      },
+      "tokens": 315567,
+      "overrides": [
+        "token budget reached; answering with what is available"
+      ],
+      "revisions": 2,
+      "generation": {
+        "faithfulness": 0.5,
+        "unsupported_claims": [
+          "Spread your protein across meals of about 0.25 g/kg (20-40g) every 3-4 hours.",
+          "Consider including creatine supplementation as it can improve performance in high-intensity exercise and lean mass gains during resistance training."
+        ],
+        "groundedness_numeric": 0.5,
+        "groundedness_citations": null,
+        "answer_relevance": 0.25
+      }
+    },
+    {
+      "id": "s03",
+      "name": "Jain diet",
+      "passed": false,
+      "failures": [
+        "no validated plan returned"
+      ],
+      "status": "answered",
+      "latency_s": 200.67,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "meal_planning",
+        "meal_planning",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "meal_planning",
+        "meal_planning"
+      ],
+      "agent_ms": {
+        "health_assessment": 2637.5,
+        "meal_planning": 48736.3,
+        "recommendation": 3917.5
+      },
+      "tokens": 329607,
+      "overrides": [
+        "a meal plan needs a health profile first",
+        "token budget reached; answering with what is available"
+      ],
+      "revisions": 2,
+      "generation": {
+        "faithfulness": 0.75,
+        "unsupported_claims": [
+          "Avoiding root and bulb vegetables, onions, garlic, and mushrooms is recommended for strict Jain followers."
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": 1.0,
+        "answer_relevance": 0.25
+      }
+    },
+    {
+      "id": "s04",
+      "name": "Vegan with soy allergy wanting high protein",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 164.25,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "meal_planning",
+        "meal_planning",
+        "meal_planning",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "meal_planning",
+        "meal_planning",
+        "meal_planning"
+      ],
+      "agent_ms": {
+        "health_assessment": 1601.8,
+        "meal_planning": 68406.3,
+        "recommendation": 6576.9
+      },
+      "tokens": 392827,
+      "overrides": [
+        "a meal plan needs a health profile first",
+        "token budget reached; answering with what is available"
+      ],
+      "revisions": 3,
+      "generation": {
+        "faithfulness": 0.571,
+        "unsupported_claims": [
+          "Plant proteins from a variety of sources across the day supply all essential amino acids.",
+          "Soy, paneer, curd, tofu, tempeh, lentils, chickpeas and peanuts are concentrated protein sources.",
+          "Spreading protein across meals, adding a pulse or dairy item to each meal, and including sprouts, chana or curd as snacks help vegetarians reach higher protein targets without supplements."
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": 1.0,
+        "answer_relevance": 0.75
+      }
+    },
+    {
+      "id": "s05",
+      "name": "Halal, US",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 114.21,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "meal_planning",
+        "meal_planning",
+        "validation",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "meal_planning"
+      ],
+      "agent_ms": {
+        "health_assessment": 1595.5,
+        "meal_planning": 30928.3,
+        "validation": 8135.1,
+        "recommendation": 1897.0
+      },
+      "tokens": 249706,
+      "overrides": [
+        "a meal plan needs a health profile first",
+        "the new plan must be validated before another revision",
+        "this turn's plan already passed validation"
+      ],
+      "revisions": 1,
+      "generation": {
+        "faithfulness": 0.333,
+        "unsupported_claims": [
+          "Each meal is carefully balanced with 126-45 grams of protein, which supports muscle maintenance while in calorie deficit.",
+          "Balanced macronutrients",
+          "Stay hydrated throughout the day",
+          "Monitor portion sizes"
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": null,
+        "answer_relevance": 0.25
+      }
+    },
+    {
+      "id": "s06",
+      "name": "Type 2 diabetes, India",
+      "passed": false,
+      "failures": [
+        "no validated plan returned"
+      ],
+      "status": "answered",
+      "latency_s": 228.26,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "health_assessment",
+        "nutrition_knowledge",
+        "meal_planning",
+        "meal_planning",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "meal_planning",
+        "meal_planning"
+      ],
+      "agent_ms": {
+        "health_assessment": 1613.2,
+        "nutrition_knowledge": 6781.3,
+        "meal_planning": 86587.3,
+        "recommendation": 4989.9
+      },
+      "tokens": 327909,
+      "overrides": [
+        "this turn's evidence questions are already answered with citations; the user asked for a plan and none has been made this turn",
+        "this turn's evidence questions are already answered with citations; the user asked for a plan and none has been made this turn",
+        "token budget reached; answering with what is available"
+      ],
+      "revisions": 2,
+      "generation": {
+        "faithfulness": 0.889,
+        "unsupported_claims": [
+          "The diabetes plate method can help you balance your meals effectively."
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": null,
+        "answer_relevance": 0.75
+      }
+    },
+    {
+      "id": "s07",
+      "name": "Hypertension, US",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 549.74,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "nutrition_knowledge",
+        "nutrition_knowledge",
+        "meal_planning",
+        "meal_planning",
+        "validation",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "nutrition_knowledge",
+        "meal_planning"
+      ],
+      "agent_ms": {
+        "health_assessment": 4020.3,
+        "nutrition_knowledge": 6674.3,
+        "meal_planning": 27890.1,
+        "validation": 21965.8,
+        "recommendation": 1927.3
+      },
+      "tokens": 238453,
+      "overrides": [
+        "this turn's evidence questions are already answered with citations; the user asked for a plan and none has been made this turn",
+        "this turn's evidence questions are already answered with citations; the user asked for a plan and none has been made this turn",
+        "this turn's evidence questions are already answered with citations; plans must be validated before they are shown",
+        "this turn's evidence questions are already answered with citations"
+      ],
+      "revisions": 1,
+      "generation": {
+        "faithfulness": 0.875,
+        "unsupported_claims": [
+          "People with kidney disease or taking certain blood-pressure medicines (ACE inhibitors, ARBs, potassium-sparing diuretics) should not raise potassium or use potassium-based salt substitutes without medical advice."
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": null,
+        "answer_relevance": 0.75
+      }
+    },
+    {
+      "id": "s08",
+      "name": "Kidney disease asks for high protein",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 9.26,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "recommendation"
+      ],
+      "agent_failures": [],
+      "agent_ms": {
+        "health_assessment": 3537.4,
+        "recommendation": 2869.5
+      },
+      "tokens": 15572,
+      "overrides": [
+        "a meal plan needs a health profile first",
+        "escalation required: no personalised plan, safe-mode guidance only"
+      ],
+      "revisions": 0,
+      "generation": {
+        "faithfulness": 0.667,
+        "unsupported_claims": [
+          "Aim for about 1.6 grams of protein per kilogram of body weight daily, divided into three meals."
+        ],
+        "groundedness_numeric": 0.5,
+        "groundedness_citations": null,
+        "answer_relevance": 0.75
+      }
+    },
+    {
+      "id": "s09",
+      "name": "Pregnant, wants weight loss",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 10.19,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "health_assessment",
+        "recommendation"
+      ],
+      "agent_failures": [],
+      "agent_ms": {
+        "health_assessment": 2450.7,
+        "recommendation": 2195.0
+      },
+      "tokens": 15589,
+      "overrides": [
+        "nothing essential is missing; no need to ask the user"
+      ],
+      "revisions": 0,
+      "generation": {
+        "faithfulness": 0.667,
+        "unsupported_claims": [
+          "A safe rate of weight loss is about 0.5 to 1 kg (1 to 2 lb) per week, but this should be discussed with your healthcare provider."
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": 1.0,
+        "answer_relevance": 1.0
+      }
+    },
+    {
+      "id": "s10",
+      "name": "Minor",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 36.93,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "health_assessment",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "recommendation"
+      ],
+      "agent_ms": {
+        "health_assessment": 2270.5,
+        "recommendation": 29889.9
+      },
+      "tokens": 45934,
+      "overrides": [
+        "health assessment already tried twice"
+      ],
+      "revisions": 0,
+      "generation": {
+        "faithfulness": 0.5,
+        "unsupported_claims": [
+          "Because of your health situation, please review any diet change with a doctor or registered dietitian."
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": null,
+        "answer_relevance": 1.0
+      }
+    },
+    {
+      "id": "s11",
+      "name": "Warfarin question only",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 6.56,
+      "completed": true,
+      "agents": [
+        "nutrition_knowledge",
+        "recommendation"
+      ],
+      "agent_failures": [],
+      "agent_ms": {
+        "nutrition_knowledge": 3061.7,
+        "recommendation": 1732.2
+      },
+      "tokens": 7068,
+      "overrides": [
+        "this turn's evidence questions are already answered with citations"
+      ],
+      "revisions": 0,
+      "generation": {
+        "faithfulness": 1.0,
+        "unsupported_claims": [],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": 1.0,
+        "answer_relevance": 0.75
+      }
+    },
+    {
+      "id": "s12",
+      "name": "Creatine question",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 10.36,
+      "completed": true,
+      "agents": [
+        "nutrition_knowledge",
+        "recommendation"
+      ],
+      "agent_failures": [],
+      "agent_ms": {
+        "nutrition_knowledge": 4315.1,
+        "recommendation": 4456.8
+      },
+      "tokens": 17258,
+      "overrides": [
+        "this turn's evidence questions are already answered with citations"
+      ],
+      "revisions": 0,
+      "generation": {
+        "faithfulness": 1.0,
+        "unsupported_claims": [],
+        "groundedness_numeric": 0.0,
+        "groundedness_citations": 1.0,
+        "answer_relevance": 0.75
+      }
+    },
+    {
+      "id": "s13",
+      "name": "Statin and grapefruit",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 7.89,
+      "completed": true,
+      "agents": [
+        "nutrition_knowledge",
+        "recommendation"
+      ],
+      "agent_failures": [],
+      "agent_ms": {
+        "nutrition_knowledge": 4052.6,
+        "recommendation": 1834.9
+      },
+      "tokens": 13137,
+      "overrides": [
+        "this turn's evidence questions are already answered with citations"
+      ],
+      "revisions": 0,
+      "generation": {
+        "faithfulness": 1.0,
+        "unsupported_claims": [],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": null,
+        "answer_relevance": 0.75
+      }
+    },
+    {
+      "id": "s14",
+      "name": "Unrealistic goal",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 84.85,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "meal_planning",
+        "validation",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "validation"
+      ],
+      "agent_ms": {
+        "health_assessment": 2081.8,
+        "meal_planning": 41169.6,
+        "validation": 29913.6,
+        "recommendation": 4724.9
+      },
+      "tokens": 135959,
+      "overrides": [
+        "the new plan must be validated before another revision",
+        "this turn's plan already passed validation"
+      ],
+      "revisions": 0,
+      "generation": {
+        "faithfulness": 0.6,
+        "unsupported_claims": [
+          "The high fiber content (53.1 g) will help you feel full longer, reducing overall calorie intake",
+          "This gradual approach supports muscle maintenance and satiety"
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": null,
+        "answer_relevance": 0.25
+      }
+    },
+    {
+      "id": "s15",
+      "name": "Missing essentials",
+      "passed": true,
+      "failures": [],
+      "status": "clarifying",
+      "latency_s": 13.0,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "health_assessment"
+      ],
+      "agent_failures": [
+        "health_assessment"
+      ],
+      "agent_ms": {
+        "health_assessment": 4177.8
+      },
+      "tokens": 32215,
+      "overrides": [
+        "health assessment already tried twice"
+      ],
+      "revisions": 0
+    },
+    {
+      "id": "s16",
+      "name": "Profile from free text",
+      "passed": true,
+      "failures": [],
+      "status": "answered",
+      "latency_s": 83.97,
+      "completed": true,
+      "agents": [
+        "health_assessment",
+        "meal_planning",
+        "meal_planning",
+        "validation",
+        "recommendation"
+      ],
+      "agent_failures": [
+        "meal_planning"
+      ],
+      "agent_ms": {
+        "health_assessment": 1963.2,
+        "meal_planning": 10798.6,
+        "validation": 27569.7,
+        "recommendation": 1741.5
+      },
+      "tokens": 106489,
+      "overrides": [
+        "the new plan must be validated before another revision",
+        "this turn's plan already passed validation"
+      ],
+      "revisions": 1,
+      "generation": {
+        "faithfulness": 0.667,
+        "unsupported_claims": [
+          "Each meal is carefully crafted to meet your daily macronutrient goals of 61g protein, 329g carbs, and 67g fat while keeping within your TDEE of 2164 kcal."
+        ],
+        "groundedness_numeric": 1.0,
+        "groundedness_citations": null,
+        "answer_relevance": 0.5
+      }
+    }
+  ],
+  "model": "nip-qwen2.5:7b-32k",
+  "judge_model": "nip-llama3.1:8b-12k"
+}
