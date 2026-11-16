@@ -221,7 +221,7 @@ def _min_change(coef: list[dict[int, float]], targets: list[float], b: dict[int,
 
 
 def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_g: float,
-                     fat_g: float | None = None, min_g: float = 5, max_g: float = 400,
+                     fat_g: float | None = None, min_g: float = 5, max_g: float = 500,
                      step_g: float = 5) -> list[FoodPortion]:
     """Rescale portions so a day's items hit kcal and protein (and fat, if the mix allows) exactly.
 

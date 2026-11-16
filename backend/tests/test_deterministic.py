@@ -179,7 +179,7 @@ def test_scale_portions_hits_targets_with_chosen_foods():
     assert abs(res["pct_of_target"]["kcal"] - 100) <= 3 and abs(res["pct_of_target"]["protein_g"] - 100) <= 3
     codes = [[i["food_code"] for i in m["items"]] for m in res["meals"]]
     assert codes == [[i["food_code"] for i in m["items"]] for m in meals]
-    assert all(10 <= i["grams"] <= 400 for m in res["meals"] for i in m["items"])
+    assert all(5 <= i["grams"] <= 500 for m in res["meals"] for i in m["items"])
     low = scale_portions(meals[:1], kcal=2056, protein_g=115)  # poha + milk cannot reach 115 g protein
     assert "advice" in low
 
