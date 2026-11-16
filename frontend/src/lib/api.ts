@@ -1,4 +1,4 @@
-import type { AgentEvent, FinalState, Profile } from './types'
+import type { AgentEvent, CalendarEntry, FinalState, Goal, Profile, RunDetail, RunSummary, SavedPlan } from './types'
 
 const TOKEN_KEY = 'nip.token'
 const NAME_KEY = 'nip.name'
@@ -36,6 +36,25 @@ export const api = {
   },
   getProfile: () => req<{ profile: Profile | null }>('/api/profile'),
   putProfile: (p: Profile) => req<{ profile: Profile }>('/api/profile', { method: 'PUT', body: JSON.stringify(p) }),
+
+  runs: () => req<{ runs: RunSummary[]; total: { runs: number; cost_usd: number; reference_cost_usd: number; tokens: number } }>('/api/runs'),
+  run: (id: string) => req<RunDetail>(`/api/runs/${id}`),
+
+  plans: () => req<{ plans: SavedPlan[] }>('/api/plans'),
+  savePlan: (thread_id: string, kind: 'meal' | 'workout', title?: string) =>
+    req<SavedPlan>('/api/plans', { method: 'POST', body: JSON.stringify({ thread_id, kind, title }) }),
+  deletePlan: (id: string) => req<{ ok: boolean }>(`/api/plans/${id}`, { method: 'DELETE' }),
+
+  calendar: (start: string, end: string) => req<{ entries: CalendarEntry[] }>(`/api/calendar?start=${start}&end=${end}`),
+  schedule: (plan_id: string, start_date: string, weeks = 1) =>
+    req<{ entries: CalendarEntry[] }>('/api/calendar', { method: 'POST', body: JSON.stringify({ plan_id, start_date, weeks }) }),
+  setDone: (id: string, done: boolean) => req<CalendarEntry>(`/api/calendar/${id}`, { method: 'PATCH', body: JSON.stringify({ done }) }),
+  unschedule: (id: string) => req<{ ok: boolean }>(`/api/calendar/${id}`, { method: 'DELETE' }),
+
+  goals: () => req<{ goals: Goal[] }>('/api/goals'),
+  addGoal: (g: Partial<Goal>) => req<Goal>('/api/goals', { method: 'POST', body: JSON.stringify(g) }),
+  updateGoal: (id: string, g: Partial<Goal>) => req<Goal>(`/api/goals/${id}`, { method: 'PATCH', body: JSON.stringify(g) }),
+  deleteGoal: (id: string) => req<{ ok: boolean }>(`/api/goals/${id}`, { method: 'DELETE' }),
 
   /** POST + server-sent events. EventSource can't POST, so we parse the stream ourselves. */
   async stream(threadId: string, message: string, on: {

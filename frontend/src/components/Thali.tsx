@@ -10,12 +10,13 @@ import { AGENT_LABEL, type AgentKey } from '../lib/types'
 
 const C = 200
 const RING = 128
-const ORDER: AgentKey[] = ['health_assessment', 'nutrition_knowledge', 'meal_planning', 'validation', 'recommendation']
+const ORDER: AgentKey[] = ['health_assessment', 'nutrition_knowledge', 'meal_planning', 'validation', 'recommendation', 'workout_planning']
 const COLOR: Record<AgentKey, string> = {
   supervisor: 'var(--color-turmeric)',
   health_assessment: 'var(--color-beet)',
   nutrition_knowledge: 'var(--color-lilac)',
   meal_planning: 'var(--color-turmeric)',
+  workout_planning: 'var(--color-chilli)',
   validation: 'var(--color-leaf)',
   recommendation: 'var(--color-cardamom)',
 }
@@ -23,7 +24,7 @@ const COLOR: Record<AgentKey, string> = {
 function pos(k: AgentKey): [number, number] {
   if (k === 'supervisor') return [C, C]
   const i = ORDER.indexOf(k)
-  const a = (-90 + i * 72) * (Math.PI / 180)
+  const a = (-90 + i * (360 / ORDER.length)) * (Math.PI / 180)
   return [C + RING * Math.cos(a), C + RING * Math.sin(a)]
 }
 
@@ -48,7 +49,7 @@ const FILL: Record<AgentStatus, number> = { idle: 0, skipped: 0, thinking: 0.55,
 function Bowl({ k, view, verdict }: { k: AgentKey; view: AgentView; verdict?: string }) {
   const reduce = useReducedMotion()
   const [x, y] = pos(k)
-  const r = k === 'supervisor' ? 50 : 38
+  const r = k === 'supervisor' ? 50 : 34
   const color = view.status === 'failed' ? 'var(--color-chilli)' : COLOR[k]
   const active = view.status === 'thinking' || view.status === 'working'
   const fill = FILL[view.status]

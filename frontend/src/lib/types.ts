@@ -3,6 +3,7 @@ export type AgentKey =
   | 'health_assessment'
   | 'nutrition_knowledge'
   | 'meal_planning'
+  | 'workout_planning'
   | 'validation'
   | 'recommendation'
 
@@ -11,6 +12,7 @@ export const AGENT_LABEL: Record<AgentKey, string> = {
   health_assessment: 'Health',
   nutrition_knowledge: 'Knowledge',
   meal_planning: 'Meal plan',
+  workout_planning: 'Workout',
   validation: 'Validation',
   recommendation: 'Answer',
 }
@@ -20,6 +22,7 @@ export const AGENT_BY_NAME: Record<string, AgentKey> = {
   'Health Assessment Agent': 'health_assessment',
   'Nutrition Knowledge Agent': 'nutrition_knowledge',
   'Meal Planning Agent': 'meal_planning',
+  'Workout Planning Agent': 'workout_planning',
   'Validation Agent': 'validation',
   'Recommendation Agent': 'recommendation',
 }
@@ -66,12 +69,26 @@ export interface Recommendation {
   headline: string; summary: string; key_points: string[]; tips: string[]
   citations: Citation[]; follow_up_questions: string[]; disclaimer: string
   plan?: MealPlan | null
+  workout?: Workout | null
+}
+
+export interface WorkoutExercise {
+  exercise_id: string; name: string; type: 'strength' | 'cardio' | 'mobility'
+  sets?: number | null; reps?: string | null; rest_s?: number | null; minutes?: number | null
+}
+export interface WorkoutSession {
+  day: number; weekday: string; focus: string; minutes?: number; kcal?: number; exercises: WorkoutExercise[]
+}
+export interface Workout {
+  version: number; sessions: WorkoutSession[]; progression: string; verdict: string
+  totals: { sessions: number; minutes_week: number; aerobic_minutes_week: number; kcal_week: number; sets_by_muscle: Record<string, number> }
+  violations: Violation[]
 }
 export interface RiskFlag { code: string; severity: 'info' | 'warning' | 'critical'; message: string }
 export interface Health {
-  bmr_kcal: number; tdee_kcal: number
+  bmr_kcal: number; tdee_kcal: number; bmi?: number | null; healthy_weight_kg?: number[]
   targets: { kcal: number; protein_g: number; carbs_g: number; fat_g: number; fiber_g: number }
-  limits: { sodium_mg_max: number; saturated_fat_g_max?: number | null; added_sugar_g_max?: number | null }
+  limits: { sodium_mg_max: number; saturated_fat_g_max?: number | null; added_sugar_g_max?: number | null; protein_g_max?: number | null }
   risk_flags: RiskFlag[]; escalation_required: boolean; assumptions: string[]; rationale: string
 }
 export interface Violation { rule_id: string; severity: string; message: string; location?: string | null }
@@ -87,7 +104,37 @@ export interface FinalState {
   latest_validation: Validation | null
   evidence: Evidence[]
   decisions: { next: string; proposed: string; reason: string; override: string | null }[]
-  agent_runs: { agent: string; status: string; steps: number; ms: number; tokens: number }[]
+  agent_runs: AgentRun[]
+  latest_workout?: Workout | null
+  run?: RunSummary
+}
+
+export interface AgentRun { turn?: number; agent: string; status: string; steps: number; ms: number; tokens: number; error?: string | null }
+export interface Usage {
+  input_tokens: number; output_tokens: number; calls: number; cost_usd: number
+  reference_model?: string | null; reference_cost_usd?: number | null
+  by_model: Record<string, { input_tokens: number; output_tokens: number; calls: number }>
+}
+export interface RunSummary {
+  id: string; created_at: string; thread_id: string; turn: number; request: string; status: string; seconds: number
+  model: string; usage: Usage; agents: AgentRun[]; headline: string; has_plan: boolean; has_workout: boolean
+}
+export interface RunDetail extends RunSummary {
+  started_at: number; events: AgentEvent[]
+  decisions: { step: number; proposed: string; next: string; reason: string; override: string | null; ms: number }[]
+}
+export interface SavedPlan {
+  id: string; created_at: string; kind: 'meal' | 'workout'; title: string; thread_id: string
+  data: MealPlan & Workout; targets?: Health['targets'] | null
+}
+export interface CalendarEntry {
+  id: string; date: string; kind: 'meal' | 'workout'; plan_id: string; plan_title: string; title: string
+  day_index: number; kcal?: number | null; minutes?: number | null; done: boolean
+}
+export interface Goal {
+  id: string; created_at: string; kind: 'weight' | 'workout' | 'nutrition' | 'habit'; title: string
+  target?: number | null; unit?: string | null; current?: number | null; start?: number | null
+  deadline?: string | null; status: 'active' | 'done'
 }
 
 export type Region = 'IN' | 'US'
@@ -114,10 +161,16 @@ export interface Profile {
   meals_per_day: number
   budget: 'low' | 'medium' | 'high'
   cuisine_preferences: string[]
+  training_days_per_week: number
+  session_minutes: number
+  experience: 'beginner' | 'intermediate' | 'advanced'
+  equipment: string[]
+  injuries: string[]
 }
 
 export const EMPTY_PROFILE: Profile = {
   activity: 'light', goal: 'general_health', region: 'IN', diet_pattern: 'vegetarian', religious_rules: [],
   allergies: [], intolerances: [], dislikes: [], conditions: [], medications: [], pregnant: false,
   breastfeeding: false, meals_per_day: 3, budget: 'medium', cuisine_preferences: [],
+  training_days_per_week: 3, session_minutes: 45, experience: 'beginner', equipment: ['none'], injuries: [],
 }

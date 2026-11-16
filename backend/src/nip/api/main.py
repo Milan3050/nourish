@@ -213,8 +213,14 @@ async def chat_stream(thread_id: str, body: ChatRequest, user: str = Depends(rat
     inp: dict[str, Any] = {"request": body.message,
                            "user_goals": [{k: g.get(k) for k in ("kind", "title", "target", "unit", "current", "deadline")}
                                           for g in await S.store.list(user, "goal") if g.get("status") != "done"]}
-    if not (snapshot.values or {}).get("profile"):
-        inp["profile"] = await load_profile(user) or {"region": "IN"}
+    stored = await load_profile(user)
+    current = (snapshot.values or {}).get("profile")
+    if stored or not current:  # the profile page is the source of truth; agents' updates are saved back
+        inp["profile"] = stored or {"region": "IN"}
+        energy_fields = ("age", "sex", "height_cm", "weight_kg", "activity", "goal", "target_weight_kg",
+                         "timeline_weeks", "region", "conditions", "medications", "pregnant", "breastfeeding")
+        if current and any(current.get(k) != inp["profile"].get(k) for k in energy_fields):
+            inp["health"] = None  # stale targets: the health assessment runs again
     usage = UsageTracker()
     cfg = {**cfg, "callbacks": [usage]}
 

@@ -1,15 +1,21 @@
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from 'motion/react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { MessageSquare, PenLine, Plus, Soup } from 'lucide-react'
+import { CalendarDays, ClipboardList, History, MessageSquare, Plus, Soup, Target, UserRound } from 'lucide-react'
 import clsx from 'clsx'
 import { api, session } from './lib/api'
-import { EMPTY_PROFILE, type AgentKey, type Profile } from './lib/types'
+import { EMPTY_PROFILE, type AgentKey, type Health, type Profile } from './lib/types'
 import { useChat, type AgentView, type Flight } from './lib/useChat'
 import { Thali } from './components/Thali'
 import { ActivityLog } from './components/ActivityLog'
 import { Chat } from './components/Chat'
-import { EvidencePanel, PlanPanel, TargetsPanel } from './components/Panels'
+import { EvidencePanel, PlanPanel, TargetsPanel, WorkoutPanel } from './components/Panels'
 import { Onboarding } from './components/Onboarding'
+import { PlanActions } from './components/PlanActions'
+import { RunsPage } from './pages/RunsPage'
+import { PlansPage } from './pages/PlansPage'
+import { CalendarPage } from './pages/CalendarPage'
+import { GoalsPage } from './pages/GoalsPage'
+import { ProfilePage } from './pages/ProfilePage'
 
 const spring = { type: 'spring' as const, stiffness: 380, damping: 32 }
 const DEMO: AgentKey[] = ['health_assessment', 'meal_planning', 'validation', 'recommendation']
@@ -17,7 +23,7 @@ const DEMO: AgentKey[] = ['health_assessment', 'meal_planning', 'validation', 'r
 /** The landing hero: the thali plays through one request while you type your name. */
 function useDemo() {
   const idle = (): Record<AgentKey, AgentView> => Object.fromEntries(
-    (['supervisor', 'health_assessment', 'nutrition_knowledge', 'meal_planning', 'validation', 'recommendation'] as AgentKey[])
+    (['supervisor', 'health_assessment', 'nutrition_knowledge', 'meal_planning', 'workout_planning', 'validation', 'recommendation'] as AgentKey[])
       .map(k => [k, { status: 'idle', runs: 0 }])) as Record<AgentKey, AgentView>
   const [agents, setAgents] = useState(idle)
   const [flights, setFlights] = useState<Flight[]>([])
@@ -71,8 +77,8 @@ function Welcome({ onIn }: { onIn: (name: string) => Promise<void> }) {
   )
 }
 
-type Tab = 'plan' | 'targets' | 'sources'
-const TABS: [Tab, string][] = [['plan', 'Meal plan'], ['targets', 'Your targets'], ['sources', 'Sources']]
+type Tab = 'plan' | 'workout' | 'targets' | 'sources'
+const TABS: [Tab, string][] = [['plan', 'Meal plan'], ['workout', 'Workout'], ['targets', 'Your targets'], ['sources', 'Sources']]
 
 /** Tabs with the ARIA tabs pattern: roving tabindex, arrow keys, Home/End, linked panels. */
 function useTabs(tab: Tab, setTab: (t: Tab) => void) {
@@ -90,9 +96,9 @@ function useTabs(tab: Tab, setTab: (t: Tab) => void) {
 }
 
 type Pane = 'chat' | 'work'
+type Chat = ReturnType<typeof useChat>
 
-function Workspace({ profile, name, onEditProfile }: { profile: Profile; name: string; onEditProfile: () => void }) {
-  const chat = useChat()
+function Workspace({ chat, profile, name }: { chat: Chat; profile: Profile; name: string }) {
   const [tab, setTab] = useState<Tab>('plan')
   const [pane, setPane] = useState<Pane>('chat')  // small screens show one pane at a time
   const [seenPlan, setSeenPlan] = useState<string | undefined>()
@@ -101,30 +107,18 @@ function Workspace({ profile, name, onEditProfile }: { profile: Profile; name: s
   const verdictEvents = chat.events.filter(e => e.type === 'validation_verdict')
   const verdict = verdictEvents.at(-1)?.verdict
   const revisions = verdictEvents.filter(e => e.verdict === 'REJECT').length
-  const planMsg = [...chat.messages].reverse().find(m => m.state?.recommendation?.plan)
-  const plan = planMsg?.state?.recommendation?.plan
+  const planMsg = [...chat.messages].reverse().find(m => m.state?.recommendation?.plan || m.state?.recommendation?.workout)
+  const plan = [...chat.messages].reverse().find(m => m.state?.recommendation?.plan)?.state?.recommendation?.plan
+  const workout = [...chat.messages].reverse().find(m => m.state?.recommendation?.workout)?.state?.recommendation?.workout
   const unseen = !!planMsg && planMsg.id !== seenPlan && pane !== 'work'
   const showPane = (k: Pane) => { setPane(k); if (k === 'work') setSeenPlan(planMsg?.id) }
-  useEffect(() => { if (s?.recommendation?.plan) setTab('plan') }, [s])
+  useEffect(() => {
+    if (s?.recommendation?.plan) setTab('plan')
+    else if (s?.recommendation?.workout) setTab('workout')
+  }, [s])
 
-  const headerBtn = 'inline-flex items-center gap-1.5 text-sm rounded-full border border-line px-3 py-1.5 hover:border-mist'
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 border-b border-line/70">
-        <span className="font-display text-xl font-semibold text-turmeric">Thali</span>
-        <span className="text-sm text-dim hidden md:inline">
-          {profile.region === 'IN' ? 'India' : 'United States'} food table, {profile.diet_pattern}
-          {profile.allergies.length > 0 && `, avoiding ${profile.allergies.join(', ')}`}
-        </span>
-        <div className="ml-auto flex gap-2">
-          <button onClick={onEditProfile} aria-label="Edit profile" title="Edit profile" className={headerBtn}>
-            <PenLine size={14} aria-hidden /><span className="hidden sm:inline">Edit profile</span>
-          </button>
-          <button onClick={chat.reset} aria-label="New conversation" title="New conversation" className={headerBtn}>
-            <Plus size={14} aria-hidden /><span className="hidden sm:inline">New conversation</span>
-          </button>
-        </div>
-      </header>
       <nav aria-label="Panels" className="lg:hidden grid grid-cols-2 gap-1 p-1 mx-4 mt-3 rounded-full bg-plum border border-line">
         {([['chat', 'Chat', MessageSquare], ['work', 'Agents & plan', Soup]] as const).map(([k, l, Icon]) => (
           <button key={k} onClick={() => showPane(k)} aria-pressed={pane === k}
@@ -155,11 +149,11 @@ function Workspace({ profile, name, onEditProfile }: { profile: Profile; name: s
           </section>
           <section className="p-4 sm:p-5">
             <LayoutGroup id="tabs">
-              <div role="tablist" aria-label="Results" onKeyDown={tabs.onKeyDown} className="flex gap-6 border-b border-line/70 mb-5">
+              <div role="tablist" aria-label="Results" onKeyDown={tabs.onKeyDown} className="flex gap-5 border-b border-line/70 mb-5 overflow-x-auto">
                 {TABS.map(([k, l]) => (
                   <button key={k} id={`tab-${k}`} role="tab" aria-selected={tab === k} aria-controls={`panel-${k}`}
                     tabIndex={tab === k ? 0 : -1} ref={el => { tabs.refs.current[k] = el }} onClick={() => setTab(k)}
-                    className={clsx('relative pb-2.5 text-[15px] transition-colors', tab === k ? 'text-cream' : 'text-dim hover:text-mist')}>
+                    className={clsx('relative pb-2.5 text-[15px] whitespace-nowrap transition-colors', tab === k ? 'text-cream' : 'text-dim hover:text-mist')}>
                     {l}
                     {tab === k && <motion.span layoutId="tab-line" transition={spring} className="absolute left-0 right-0 -bottom-px h-0.5 bg-turmeric rounded-full" />}
                   </button>
@@ -168,8 +162,16 @@ function Workspace({ profile, name, onEditProfile }: { profile: Profile; name: s
             </LayoutGroup>
             <AnimatePresence mode="wait">
               <motion.div key={tab} id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}
-                initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}>
-                {tab === 'plan' && <PlanPanel plan={plan} health={s?.health ?? null} validation={s?.latest_validation ?? null} />}
+                initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}
+                className="space-y-4">
+                {tab === 'plan' && <>
+                  {plan && <PlanActions key={`meal-${planMsg?.id}`} threadId={chat.threadId} kind="meal" />}
+                  <PlanPanel plan={plan} health={s?.health ?? null} validation={s?.latest_validation ?? null} />
+                </>}
+                {tab === 'workout' && <>
+                  {workout && <PlanActions key={`workout-${planMsg?.id}`} threadId={chat.threadId} kind="workout" />}
+                  <WorkoutPanel workout={workout} requested={!!s && !workout && chat.messages.some(m => /workout|exercise|training/i.test(m.text) && m.role === 'user')} />
+                </>}
                 {tab === 'targets' && <TargetsPanel health={s?.health ?? null} />}
                 {tab === 'sources' && <EvidencePanel evidence={s?.evidence ?? []} />}
               </motion.div>
@@ -177,6 +179,75 @@ function Workspace({ profile, name, onEditProfile }: { profile: Profile; name: s
           </section>
         </div>
       </div>
+    </div>
+  )
+}
+
+type Page = 'chat' | 'plans' | 'calendar' | 'goals' | 'runs' | 'profile'
+const PAGES: [Page, string, typeof MessageSquare][] = [
+  ['chat', 'Chat', MessageSquare], ['plans', 'Plans', ClipboardList], ['calendar', 'Calendar', CalendarDays],
+  ['goals', 'Goals', Target], ['runs', 'Runs', History], ['profile', 'Profile', UserRound],
+]
+const pageFromHash = (): Page => {
+  const h = window.location.hash.slice(1) as Page
+  return PAGES.some(([k]) => k === h) ? h : 'chat'
+}
+
+/** Signed-in app: top navigation, the chat workspace (kept mounted so a run continues in the background)
+ * and the other pages. */
+function Shell({ profile, name, onEditProfile, onProfile }: {
+  profile: Profile; name: string; onEditProfile: () => void; onProfile: (p: Profile) => void
+}) {
+  const chat = useChat()
+  const [page, setPage] = useState<Page>(pageFromHash)
+  useEffect(() => {
+    const on = () => setPage(pageFromHash())
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
+  const health: Health | null = [...chat.messages].reverse().find(m => m.state?.health)?.state?.health ?? null
+  const go = (p: Page) => { window.location.hash = p; setPage(p) }
+  const title = PAGES.find(([k]) => k === page)?.[1]
+  return (
+    <div className="h-full flex flex-col">
+      <header className="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-line/70">
+        <span className="font-display text-xl font-semibold text-turmeric">Thali</span>
+        <nav aria-label="Main" className="flex-1 min-w-0 overflow-x-auto scroll-thin">
+          <ul className="flex gap-1 list-none m-0 p-0">
+            {PAGES.map(([k, l, Icon]) => (
+              <li key={k}>
+                <a href={`#${k}`} onClick={e => { e.preventDefault(); go(k) }} aria-current={page === k ? 'page' : undefined}
+                  className={clsx('inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm whitespace-nowrap transition-colors',
+                    page === k ? 'bg-plum-2 text-cream' : 'text-dim hover:text-mist')}>
+                  <Icon size={14} aria-hidden />{l}
+                  {k === 'chat' && chat.busy && page !== 'chat' && <span className="size-1.5 rounded-full bg-leaf" aria-label="agents working" />}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        {page === 'chat' && (
+          <button onClick={chat.reset} aria-label="New conversation" title="New conversation"
+            className="inline-flex items-center gap-1.5 text-sm rounded-full border border-line px-3 py-1.5 hover:border-mist shrink-0">
+            <Plus size={14} aria-hidden /><span className="hidden md:inline">New conversation</span>
+          </button>
+        )}
+      </header>
+      <div className={clsx('flex-1 min-h-0', page === 'chat' ? 'block' : 'hidden')}>
+        <Workspace chat={chat} profile={profile} name={name} />
+      </div>
+      {page !== 'chat' && (
+        <main className="flex-1 min-h-0 overflow-y-auto scroll-thin">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+            <h1 className="font-display text-3xl font-semibold mt-0 mb-5">{title}</h1>
+            {page === 'plans' && <PlansPage />}
+            {page === 'calendar' && <CalendarPage />}
+            {page === 'goals' && <GoalsPage profile={profile} />}
+            {page === 'runs' && <RunsPage />}
+            {page === 'profile' && <ProfilePage profile={profile} name={name} health={health} onEdit={onEditProfile} onSaved={onProfile} />}
+          </div>
+        </main>
+      )}
     </div>
   )
 }
@@ -203,7 +274,8 @@ export default function App() {
             {stage === 'onboarding' && (
               <Onboarding initial={{ ...profile, name }} onDone={async p => { const r = await api.putProfile(p); setProfile({ ...EMPTY_PROFILE, ...r.profile }); setStage('app') }} />
             )}
-            {stage === 'app' && <Workspace profile={profile} name={name} onEditProfile={() => setStage('onboarding')} />}
+            {stage === 'app' && <Shell profile={profile} name={name} onEditProfile={() => setStage('onboarding')}
+              onProfile={p => setProfile({ ...EMPTY_PROFILE, ...p })} />}
           </motion.div>
         </AnimatePresence>
       </div>

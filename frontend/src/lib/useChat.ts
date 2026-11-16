@@ -21,7 +21,7 @@ export interface AgentView {
   ms?: number
 }
 
-const AGENTS: AgentKey[] = ['supervisor', 'health_assessment', 'nutrition_knowledge', 'meal_planning', 'validation', 'recommendation']
+const AGENTS: AgentKey[] = ['supervisor', 'health_assessment', 'nutrition_knowledge', 'meal_planning', 'workout_planning', 'validation', 'recommendation']
 const freshAgents = () => Object.fromEntries(AGENTS.map(a => [a, { status: 'idle', runs: 0 } as AgentView])) as Record<AgentKey, AgentView>
 
 let flightId = 0

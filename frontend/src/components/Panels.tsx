@@ -3,14 +3,24 @@ import { ChevronDown, ExternalLink, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import clsx from 'clsx'
 import { MacroRing } from './MacroRing'
-import type { Evidence, Health, MealPlan, Validation } from '../lib/types'
+import { WorkoutView } from './WorkoutView'
+import type { Evidence, Health, MealPlan, Validation, Workout } from '../lib/types'
 
 const SLOT: Record<string, string> = {
   breakfast: 'Breakfast', mid_morning: 'Mid-morning', lunch: 'Lunch', snack: 'Snack', dinner: 'Dinner', bedtime: 'Bedtime',
 }
 const spring = { type: 'spring' as const, stiffness: 380, damping: 32 }
 
-export function PlanPanel({ plan, health, validation }: { plan: MealPlan | null | undefined; health: Health | null; validation: Validation | null }) {
+export function WorkoutPanel({ workout, requested }: { workout: Workout | null | undefined; requested?: boolean }) {
+  if (!workout) return <Empty title="No workout plan yet" body={requested
+    ? "The last workout plan didn't pass the workout checks. Try again, or check your training settings on the Profile page."
+    : 'Ask for one, for example "Build me a 3-day workout plan".'} />
+  return <WorkoutView workout={workout} />
+}
+
+export function PlanPanel({ plan, health, validation, targets }: {
+  plan: MealPlan | null | undefined; health: Health | null; validation: Validation | null; targets?: Health['targets'] | null
+}) {
   const [day, setDay] = useState(0)
   const [open, setOpen] = useState<string | null>(null)
   if (!plan) {
@@ -22,7 +32,7 @@ export function PlanPanel({ plan, health, validation }: { plan: MealPlan | null 
     )
   }
   const d = plan.days[Math.min(day, plan.days.length - 1)]
-  const t = health?.targets
+  const t = targets ?? health?.targets
   return (
     <div className="space-y-5">
       {plan.days.length > 1 && (
@@ -109,8 +119,12 @@ export function TargetsPanel({ health }: { health: Health | null }) {
       )}
       <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
         {[['Daily energy target', `${t.kcal} kcal`], ['Maintenance (TDEE)', `${health.tdee_kcal} kcal`],
-          ['Protein', `${t.protein_g} g`], ['Carbs', `${t.carbs_g} g`], ['Fat', `${t.fat_g} g`], ['Fiber', `${t.fiber_g} g`],
-          ['Sodium limit', `${health.limits.sodium_mg_max} mg`], ['Resting energy (BMR)', `${health.bmr_kcal} kcal`]].map(([k, v]) => (
+          ['Protein', health.limits.protein_g_max ? `${t.protein_g}-${health.limits.protein_g_max} g` : `${t.protein_g} g`],
+          ['Carbs', `${t.carbs_g} g`], ['Fat', `${t.fat_g} g`], ['Fiber', `${t.fiber_g} g`],
+          ['Sodium limit', `${health.limits.sodium_mg_max} mg`], ['Resting energy (BMR)', `${health.bmr_kcal} kcal`],
+          ...(health.bmi ? [['BMI', `${health.bmi}`]] : []),
+          ...(health.healthy_weight_kg?.length === 2 ? [['Healthy weight for your height', `${health.healthy_weight_kg[0]}-${health.healthy_weight_kg[1]} kg`]] : []),
+        ].map(([k, v]) => (
           <div key={k}><dt className="text-xs text-dim">{k}</dt><dd className="m-0 font-display text-xl font-semibold">{v}</dd></div>
         ))}
       </dl>
@@ -164,7 +178,7 @@ export function EvidencePanel({ evidence }: { evidence: Evidence[] }) {
   )
 }
 
-function Empty({ title, body }: { title: string; body: string }) {
+export function Empty({ title, body }: { title: string; body: string }) {
   return (
     <div className="py-10 text-center">
       <p className="font-display text-lg">{title}</p>
