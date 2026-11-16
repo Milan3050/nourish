@@ -1,5 +1,5 @@
 # Nutrition Intelligence Platform - developer commands
-.PHONY: setup infra index data retag mcp api web dev test lint eval eval-offline docker clean-db
+.PHONY: setup ollama-models infra index data retag mcp api web dev test lint eval eval-offline docker clean-db
 
 BACKEND := cd backend &&
 # API port; e.g. `make dev API_PORT=8010` if 8000 is taken (the web dev proxy follows it)
@@ -10,6 +10,13 @@ setup:            ## install backend + frontend dependencies
 	$(BACKEND) uv sync --extra dev
 	cd frontend && npm install
 	@test -f .env || cp .env.example .env
+
+ollama-models:    ## pull the base models and create the larger-context variants the app uses
+	ollama pull qwen2.5:7b-instruct
+	ollama pull nomic-embed-text
+	ollama create nip-qwen2.5:7b-32k -f ollama/qwen2.5-7b-32k.Modelfile
+	@ollama list | grep -q '^llama3.1:latest' && ollama create nip-llama3.1:8b-12k -f ollama/llama3.1-8b-12k.Modelfile || \
+	  echo "optional eval judge: ollama pull llama3.1 && make ollama-models"
 
 infra:            ## start Postgres (pgvector) and Phoenix tracing
 	docker compose up -d db phoenix

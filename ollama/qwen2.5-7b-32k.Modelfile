@@ -1,0 +1,3 @@
+FROM qwen2.5:7b-instruct
+# Ollama servers often default to a 2-8k context; agent transcripts need more (see docs/evaluation.md).
+PARAMETER num_ctx 32768

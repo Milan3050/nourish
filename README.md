@@ -14,9 +14,7 @@ an independent validation agent. Food data covers India (IFCT 2017) and the US (
 Requirements: Docker, [uv](https://docs.astral.sh/uv/), Node 20+, [Ollama](https://ollama.com).
 
 ```bash
-ollama pull qwen2.5:7b-instruct
-ollama pull nomic-embed-text
-
+make ollama-models  # qwen2.5:7b-instruct + nomic-embed-text, and a 32k-context variant of qwen
 make setup        # Python + Node dependencies, creates .env from .env.example
 make infra        # Postgres (pgvector) + Phoenix tracing UI in Docker
 make index        # embed the guideline corpus into pgvector
