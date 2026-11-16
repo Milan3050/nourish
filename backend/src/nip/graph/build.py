@@ -28,6 +28,14 @@ from nip.security.guard import BLOCKED_RESPONSES, check_input
 from nip.tools.energy import required_missing
 from nip.tools.foods import get_food_db, request_exclusions
 
+# The message asks for a meal plan or a change to one. An objective, not a route: enforce() uses it so a
+# turn cannot end without a planning attempt when the user asked for a plan.
+PLAN_REQUEST = re.compile(
+    r"\b(?:meal[- ]?plan|diet plan|menu|plan\b(?:\s+\S+){0,5}?\s+(?:meals?|days?|diet|menu|week|breakfast|lunch|dinner|eating)"
+    r"|(?:make|give|create|build|design|prepare|suggest)\s+(?:me\s+)?(?:an?\s+)?(?:\S+\s+){0,3}?(?:plan|diet)\b|\bplan please"
+    r"|(?:swap|replace|change)\s+(?:the\s+|my\s+)?(?:breakfast|lunch|dinner|snack|meal)"
+    r"|make (?:tomorrow|today|day \d) (?:a|an)\b)", re.I)
+
 # Example ingredient names that exist in each region's table (search vocabulary for the planner).
 STAPLES = {
     "IN": "green gram dal, red gram dal, bengal gram whole, rajmah, soya bean, paneer, milk cow, egg poultry, "
@@ -100,6 +108,7 @@ async def intake(state: NIPState) -> dict:
     upd: dict[str, Any] = {
         "request": check.text, "input_flags": check.flags, "turn": turn, "turn_steps": 0,
         "turn_exclusions": request_exclusions(get_food_db(), check.text, region),
+        "plan_requested": bool(PLAN_REQUEST.search(check.text)),
         "turn_revisions": 0, "turn_tokens": 0, "recommendation": None, "next": None, "objectives": [],
         "pending_questions": [], "status": "running", "blocked_reason": None,
         "history": [{"role": "user", "content": check.text, "turn": turn}],

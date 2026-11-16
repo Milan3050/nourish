@@ -24,6 +24,7 @@ class NIPState(TypedDict, total=False):
     history: Annotated[list[dict], operator.add]
     input_flags: list[str]
     turn_exclusions: list[str]  # foods ruled out in this message ("without paneer"); this turn only
+    plan_requested: bool  # the message asks for a plan or a change to one (deterministic, from the text)
     blocked_reason: str | None
     # durable user context (survives across turns in a thread)
     profile: dict

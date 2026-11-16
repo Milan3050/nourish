@@ -68,6 +68,7 @@ def summarise_state(state: dict) -> dict:
             "targets": health["targets"], "escalation_required": health["escalation_required"],
             "risk_flags": [f["code"] for f in health.get("risk_flags", [])]},
         "pending_questions": state.get("pending_questions") or [],
+        "user_asked_for_a_plan": bool(state.get("plan_requested")),
         "evidence_this_turn": [{"question": e["question"], "sufficient": e.get("sufficient")}
                                for e in state.get("evidence") or [] if e.get("turn") == turn],
         "evidence_earlier_turns": [e["question"] for e in state.get("evidence") or [] if e.get("turn") != turn],
@@ -184,6 +185,11 @@ def _enforce_once(state: dict, nxt: str) -> tuple[str, str | None]:
     if nxt == "validation" and not unvalidated:
         return ("recommendation", "no new plan to validate") if not rejected else \
             ("meal_planning", "latest plan was rejected; revise it")
+    planner_tries = _ran_this_turn(state, "meal_planning")
+    if nxt == "recommendation" and state.get("plan_requested") and not turn_plan \
+            and health and not health.get("escalation_required") and planner_tries < 2 \
+            and state.get("turn_revisions", 0) < s.max_plan_revisions:
+        return "meal_planning", "the user asked for a plan and none has been made this turn"
     if nxt == "recommendation":
         if not health and escalation_triggers(profile) and health_tries < 2:
             return "health_assessment", "profile has escalation triggers; screen before any personalised answer"

@@ -294,3 +294,11 @@ async def test_failed_change_is_reported_honestly(run):
     final2, _, _ = await run(w, "Swap the breakfast for something without paneer", thread="chg", graph=g)
     assert final2["turn_exclusions"] == ["paneer"] and len(final2["plans"]) == 1  # no new plan passed
     assert final2["status"] == "answered"
+
+
+async def test_requested_plan_is_attempted_before_answering(run):
+    w = veg_world()
+    w.supervisor_script = ["health_assessment", "recommendation", "validation", "recommendation"]
+    final, _, _ = await run(w, "Plan a day of meals for me", profile=VEG_PROFILE)
+    assert final["plan_requested"] and final["recommendation"]["plan"]
+    assert final["decisions"][1]["override"] == "the user asked for a plan and none has been made this turn"
