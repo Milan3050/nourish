@@ -204,3 +204,24 @@ def test_ifct_two_word_allergen_names_are_tagged(db):
     assert "peanut" in db.get("IN-H012").allergens
     assert all(f.code != "IN-H012" for f in db.search("groundnut", Region.IN, 20, peanut))
     assert not is_allowed(db.get("IN-H017"), UserProfile(allergies=["tree nuts"]))[0]  # pine seeds
+
+
+def test_planner_check_rejects_meat_dish_names_and_returns_rescaled_days():
+    import json as _json
+
+    from nip.agents.specs import PlanSubmission, planner_agent
+
+    profile = base_profile(diet_pattern=DietPattern.vegetarian, goal=Goal.lose_weight)
+    ctx = {"profile": profile.model_dump(mode="json"), "health": assess(profile).model_dump()}
+    agent = planner_agent(ctx)
+    day = {"day": 1, "meals": [
+        {"slot": "lunch", "name": "Dal rice", "items": [{"food_code": "IN-B010", "grams": 50},
+                                                        {"food_code": "IN-A015", "grams": 60}]},
+        {"slot": "dinner", "name": "Paneer roti", "items": [{"food_code": "IN-L003", "grams": 60},
+                                                          {"food_code": "IN-A019", "grams": 60}]}]}
+    errs = agent.check(PlanSubmission(days=[day]))
+    assert any("vs target" in e for e in errs) and errs[-1].startswith("Rescaled")
+    fixed = _json.loads(errs[-1].split("unchanged: ", 1)[1])
+    assert agent.check(PlanSubmission(days=fixed)) == []  # the handed-back days pass the unchanged check
+    named = {**day, "meals": [{**day["meals"][0], "name": "Chicken curry with rice"}]}
+    assert any("dish name" in e for e in agent.check(PlanSubmission(days=[named])))

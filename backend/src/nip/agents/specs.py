@@ -16,10 +16,12 @@ from pydantic import BaseModel, Field, field_validator
 
 from nip.agents.base import Emit, GoalAgent
 from nip.config import get_settings
+from nip.data.taxonomy import alias_terms, allergens_for, meats_for
 from nip.domain.models import RiskFlag, UserProfile, Violation
 from nip.security.guard import check_output, wrap_untrusted
 from nip.tools.backend import get_backend
 from nip.tools.foods import get_food_db, is_allowed
+from nip.tools.registry import scale_portions as scale_portions_tool
 
 
 def _tool(fn, name: str, description: str) -> StructuredTool:
@@ -291,56 +293,68 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
 
     async def search_foods(ingredients: list[str]) -> dict:
         """Look up several ingredients at once by plain name, e.g. ["green gram dal", "rice raw", "paneer"].
-        Returns allowed foods (per 100 g values) from the user's food table for each name."""
+        Returns allowed foods from the user's food table for each name, with kcal and protein per 100 g."""
         if isinstance(ingredients, str):
             ingredients = [ingredients]
         out = {}
-        for q in ingredients[:10]:
+        for q in ingredients[:12]:
             res = await be.call("search_foods", {"query": q, "region": ctx["profile"]["region"],
-                                                 "profile": ctx["profile"], "limit": 4})
-            out[q] = res["results"] or res.get("hint", "no match")
+                                                 "profile": ctx["profile"], "limit": 3})
+            out[q] = [{"food_code": f["code"], "name": f["name"], "kcal": f["per_100g"]["kcal"],
+                       "protein_g": f["per_100g"]["protein_g"]} for f in res["results"]] or res.get("hint")
         return {"results": out}
 
-    async def compute_nutrition(items: list[dict]) -> dict:
-        """Exact totals for [{food_code, grams}, ...] and their % of the daily targets."""
-        res = await be.call("compute_meal_nutrition", {"items": items})
-        t = res["totals"]
-        res["pct_of_daily_target"] = {k: round(100 * t[k2] / targets[k], 0) if targets[k] else None
-                                      for k, k2 in (("kcal", "kcal"), ("protein_g", "protein_g"),
-                                                    ("carbs_g", "carbs_g"), ("fat_g", "fat_g"))}
-        return res
-
     async def scale_portions(meals: list[dict]) -> dict:
-        """Rescale one day's meals [{slot, name, items: [{food_code, grams}]}] to hit the daily kcal and
-        protein targets. Keeps your foods; returns new grams and the day's totals."""
-        return await be.call("scale_portions", {"meals": meals, "kcal": targets["kcal"],
-                                                "protein_g": targets["protein_g"]})
+        """Pass ALL meals of ONE day [{slot, name, items: [{food_code, grams}]}]. Rescales the grams so the
+        whole day hits the daily kcal and protein targets, keeping your foods. Returns the day's meals."""
+        res = await be.call("scale_portions", {"meals": meals, "kcal": targets["kcal"],
+                                               "protein_g": targets["protein_g"]})
+        t = res["totals"]
+        return {"meals": res["meals"], "day_totals": {k: round(t[k]) for k in ("kcal", "protein_g", "carbs_g", "fat_g")},
+                "pct_of_target": res["pct_of_target"], **({"advice": res["advice"]} if "advice" in res else {}),
+                **({"unknown_codes": res["unknown_codes"]} if res["unknown_codes"] else {})}
 
     def check(sub: PlanSubmission) -> list[str]:
         db = get_food_db()
         profile = UserProfile.model_validate(ctx["profile"])
+        blocked = {t for a in [*profile.allergies, *profile.intolerances] for t in alias_terms(a)}
         errs: list[str] = []
         for d in sub.days:
             kcal = protein = 0.0
             for m in d.meals:
+                named = allergens_for(m.name) & blocked
+                if named or (profile.diet_pattern != "omnivore" and meats_for(m.name)):
+                    errs.append(f"day {d.day} {m.slot}: dish name '{m.name}' names a food this user does not eat")
                 for it in m.items:
                     f = db.get(it.food_code)
                     if f is None:
-                        errs.append(f"day {d.day} {m.slot}: unknown food_code {it.food_code}")
+                        errs.append(f"day {d.day} {m.slot}: unknown food_code {it.food_code}; use codes from search_foods")
                         continue
                     ok, why = is_allowed(f, profile)
                     if not ok:
                         errs.append(f"day {d.day} {m.slot}: {f.name} not allowed ({why})")
                     kcal += f.per100g["kcal"] * it.grams / 100
                     protein += f.per100g["protein_g"] * it.grams / 100
-            for label, val, tgt in (("kcal", kcal, targets["kcal"]), ("protein_g", protein, targets["protein_g"])):
-                if tgt and abs(val - tgt) / tgt * 100 > tol:
-                    errs.append(f"day {d.day}: {label} {val:.0f} vs target {tgt:.0f} (tolerance {tol:.0f}%)")
-        return errs[:12]
+            missed = [f"day {d.day}: {label} {val:.0f} vs target {tgt:.0f} (tolerance {tol:.0f}%)"
+                      for label, val, tgt in (("kcal", kcal, targets["kcal"]), ("protein_g", protein, targets["protein_g"]))
+                      if tgt and abs(val - tgt) / tgt * 100 > tol]
+            errs += missed
+        only_targets = errs and all("vs target" in e for e in errs)
+        if only_targets:  # the foods are fine: hand back the deterministic rescale as feedback
+            fixed = []
+            for d in sub.days:
+                res = scale_portions_tool([m.model_dump() for m in d.meals], targets["kcal"], targets["protein_g"])
+                if "advice" in res:
+                    errs.append(f"day {d.day}: {res['advice']}")
+                    break
+                fixed.append({"day": d.day, "meals": res["meals"]})
+            else:
+                errs.append("Rescaled with scale_portions; these days meet the targets. Submit them unchanged: "
+                            + json.dumps(fixed))
+        return errs[:14]
 
     tools = [_tool(search_foods, "search_foods", search_foods.__doc__),
-             _tool(scale_portions, "scale_portions", scale_portions.__doc__),
-             _tool(compute_nutrition, "compute_nutrition", compute_nutrition.__doc__)]
+             _tool(scale_portions, "scale_portions", scale_portions.__doc__)]
     return GoalAgent("Meal Planning Agent", PLANNER_GOAL, tools, PlanSubmission, check,
                      max(s.max_agent_steps, 16), emit)
 
