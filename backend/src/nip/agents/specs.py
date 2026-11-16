@@ -349,8 +349,8 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                     break
                 fixed.append({"day": d.day, "meals": res["meals"]})
             else:
-                errs.append("Rescaled with scale_portions; these days meet the targets. Submit them unchanged: "
-                            + json.dumps(fixed))
+                errs.insert(0, "Rescaled with scale_portions; these days meet the targets. Submit them "
+                               "unchanged: " + json.dumps(fixed))
         return errs[:14]
 
     tools = [_tool(search_foods, "search_foods", search_foods.__doc__),
@@ -402,9 +402,10 @@ def validator_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
             return ["The rule engine escalated; verdict must be ESCALATE."]
         if rules["verdict"] == "REJECT" and sub.verdict == "PASS":
             return ["The rule engine found critical violations; you cannot PASS this plan."]
-        if sub.verdict == "REJECT" and rules["verdict"] == "PASS" and \
+        if sub.verdict in ("REJECT", "ESCALATE") and rules["verdict"] == "PASS" and \
                 not any(v.severity == "critical" for v in sub.extra_violations):
-            return ["To REJECT a plan the rules passed, add at least one critical extra_violation."]
+            return [f"To {sub.verdict} a plan the rules passed, add at least one critical extra_violation "
+                    "explaining the safety problem; otherwise PASS it."]
         return []
 
     tools = [_tool(run_safety_rules, "run_safety_rules", run_safety_rules.__doc__),

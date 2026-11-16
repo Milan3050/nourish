@@ -58,9 +58,20 @@ def scale_portions(meals: list[dict], kcal: float, protein_g: float) -> dict:
     pct = {"kcal": round(100 * t["kcal"] / kcal) if kcal else None,
            "protein_g": round(100 * t["protein_g"] / protein_g) if protein_g else None}
     res = {"meals": out, "totals": t, "pct_of_target": pct, "unknown_codes": unknown}
-    if pct["protein_g"] is not None and abs(pct["protein_g"] - 100) > 10:
-        res["advice"] = ("Protein cannot reach the target with these foods; add or swap in a protein-dense "
-                         "food (dal, paneer, soya, eggs, chicken, fish, yogurt) and scale again.")
+    advice = []
+    if pct["kcal"] is not None and pct["kcal"] < 90:
+        advice.append("Energy is short even at large portions: add energy-dense foods (rice, bread, oats, roti, "
+                      "nuts, milk, cooking oil) or another meal/snack.")
+    if pct["kcal"] is not None and pct["kcal"] > 110:
+        advice.append("Energy is too high even at small portions: remove an energy-dense item.")
+    if pct["protein_g"] is not None and pct["protein_g"] < 90:
+        advice.append("Protein is short: add or swap in a protein-dense food (dal, paneer, soya, tofu, eggs, "
+                      "chicken, fish, Greek yogurt).")
+    if pct["protein_g"] is not None and pct["protein_g"] > 110:
+        advice.append("Protein is too high for the energy target: replace some protein-dense food with grains, "
+                      "fruit or vegetables.")
+    if advice:
+        res["advice"] = " ".join(advice) + " Then call scale_portions again."
     return res
 
 

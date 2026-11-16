@@ -164,7 +164,11 @@ def _enforce_once(state: dict, nxt: str) -> tuple[str, str | None]:
             return "recommendation", "nothing essential is missing; no need to ask the user"
         if not required_missing(profile) and health_tries < 2:
             return "health_assessment", "the profile has the essentials; assess it instead of asking the user"
+    passed = turn_plan and vals and vals[-1]["plan_version"] == plans[-1]["version"] and \
+        vals[-1]["verdict"] == "PASS"
     if nxt == "meal_planning":
+        if passed:
+            return "recommendation", "this turn's plan already passed validation"
         if not health:
             if health_tries >= 2:
                 return ("clarify", "health assessment could not complete; ask the user") \

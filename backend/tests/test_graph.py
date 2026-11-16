@@ -248,3 +248,11 @@ def test_overrides_are_rechecked_against_all_invariants():
              "agent_runs": [{"turn": 1, "agent": "nutrition_knowledge"}] * 2}
     nxt, why = enforce(state, Decision(objectives=[], next="nutrition_knowledge", instruction="", reason=""))
     assert nxt == "health_assessment" and "knowledge" in why and "escalation" in why
+
+
+async def test_passed_plan_is_not_replanned(run):
+    w = veg_world()
+    w.supervisor_script = ["health_assessment", "meal_planning", "validation", "meal_planning"]
+    final, _, _ = await run(w, "1-day plan please", profile=VEG_PROFILE)
+    assert len(final["plans"]) == 1 and final["recommendation"]["plan"]
+    assert final["decisions"][-1]["override"] == "this turn's plan already passed validation"

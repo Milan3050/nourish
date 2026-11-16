@@ -173,53 +173,49 @@ def get_food_db() -> FoodDB:
     return FoodDB.from_csv()
 
 
-# Scaled as the "protein" group: protein >= 20% of the item's energy and >= 5 g/100 g (so leafy
-# greens, which are protein-rich per kcal but tiny per gram, stay with the other foods).
-PROTEIN_DENSE_SHARE = 0.20
-PROTEIN_DENSE_MIN_G = 5.0
-
-
 def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_g: float,
-                     min_g: float = 10, max_g: float = 400, step_g: float = 5) -> list[FoodPortion]:
+                     min_g: float = 5, max_g: float = 400, step_g: float = 5) -> list[FoodPortion]:
     """Rescale portions so a day's items hit kcal and protein targets, keeping the chosen foods.
 
-    Two scale factors (protein-dense items, everything else) solve the 2x2 system
-        a * kcal_dense + b * kcal_other = kcal ;  a * prot_dense + b * prot_other = protein
-    Items that hit the realistic portion bounds are fixed and the rest re-solved. When the food
-    mix cannot reach both targets, kcal is matched with one factor and the protein gap remains,
-    so the caller can see that a different food mix is needed. Unknown codes are left unchanged.
+    Minimum-change solve: start from the planner's portions scaled uniformly to the energy target (b),
+    then find the portions closest to b, in relative terms, that meet both targets exactly:
+        minimise sum(((g_i - b_i) / b_i)^2)  subject to  kcal(g) = K,  protein(g) = P
+    Closed form via Lagrange multipliers; portions that leave [min_g, max_g] are fixed at the bound and
+    the rest re-solved (active set). If the mix cannot reach both targets, the result is as close as
+    the bounds allow and the caller reports the gap. Unknown codes are left unchanged.
     """
-    known = [(i, db.get(it.food_code)) for i, it in enumerate(items)]
-    grams = [it.grams for it in items]
-    fixed: set[int] = {i for i, f in known if f is None}
-    for _ in range(4):
-        free = [(i, f) for i, f in known if i not in fixed and f]
-        if not free:
+    foods = [db.get(it.food_code) for it in items]
+    idx = [i for i, f in enumerate(foods) if f is not None]
+    if not idx or kcal <= 0 or protein_g <= 0:
+        return list(items)
+    kc = {i: foods[i].per100g["kcal"] / 100 for i in idx}
+    pr = {i: foods[i].per100g["protein_g"] / 100 for i in idx}
+    start = sum(kc[i] * items[i].grams for i in idx)
+    t = kcal / start if start > 0 else 1.0
+    b = {i: min(max(items[i].grams * t, min_g), max_g) for i in idx}
+    g: dict[int, float] = {}
+    free = list(idx)
+    while free:
+        k_rest = kcal - sum(kc[i] * g[i] for i in g) - sum(kc[i] * b[i] for i in free)
+        p_rest = protein_g - sum(pr[i] * g[i] for i in g) - sum(pr[i] * b[i] for i in free)
+        a11 = sum(b[i] ** 2 * kc[i] ** 2 for i in free)
+        a12 = sum(b[i] ** 2 * kc[i] * pr[i] for i in free)
+        a22 = sum(b[i] ** 2 * pr[i] ** 2 for i in free)
+        det = a11 * a22 - a12 ** 2
+        if abs(det) > 1e-12 * max(a11 * a22, 1e-30):
+            l1, l2 = (k_rest * a22 - a12 * p_rest) / det, (a11 * p_rest - a12 * k_rest) / det
+        else:  # foods all have the same protein density: only the energy target can be steered
+            l1, l2 = (k_rest / a11 if a11 else 0.0), 0.0
+        trial = {i: b[i] + b[i] ** 2 * (kc[i] * l1 + pr[i] * l2) for i in free}
+        out_of_bounds = {i for i, v in trial.items() if v < min_g or v > max_g}
+        if not out_of_bounds:
+            g.update(trial)
             break
-        k_fix = sum(db.get(items[i].food_code).per100g["kcal"] * grams[i] / 100 for i in fixed if known[i][1])
-        p_fix = sum(db.get(items[i].food_code).per100g["protein_g"] * grams[i] / 100 for i in fixed if known[i][1])
-        kt, pt = kcal - k_fix, protein_g - p_fix
-
-        def tot(group):
-            return (sum(f.per100g["kcal"] * grams[i] / 100 for i, f in group),
-                    sum(f.per100g["protein_g"] * grams[i] / 100 for i, f in group))
-        dense = [(i, f) for i, f in free if f.per100g["kcal"] and f.per100g["protein_g"] >= PROTEIN_DENSE_MIN_G
-                 and 4 * f.per100g["protein_g"] / f.per100g["kcal"] >= PROTEIN_DENSE_SHARE]
-        other = [(i, f) for i, f in free if (i, f) not in dense]
-        (kd, pd), (ko, po) = tot(dense), tot(other)
-        det = kd * po - ko * pd
-        a = b = None
-        if dense and other and abs(det) > 1e-9:
-            a, b = (kt * po - ko * pt) / det, (kd * pt - kt * pd) / det
-        if a is None or a <= 0 or b <= 0:  # infeasible mix: match energy only
-            ks = kd + ko
-            a = b = kt / ks if ks > 0 else 1.0
-        new = {i: grams[i] * (a if (i, f) in dense else b) for i, f in free}
-        clamped = {i for i, g in new.items() if g < min_g or g > max_g}
-        for i, g in new.items():
-            grams[i] = min(max(g, min_g), max_g)
-        if not clamped:
-            break
-        fixed |= clamped
-    return [it.model_copy(update={"grams": round(max(step_g, round(g / step_g) * step_g), 1)})
-            for it, g in zip(items, grams, strict=True)]
+        worst = max(out_of_bounds, key=lambda i: max(min_g - trial[i], trial[i] - max_g) / b[i])
+        g[worst] = min(max(trial[worst], min_g), max_g)
+        free.remove(worst)
+    out = []
+    for i, it in enumerate(items):
+        grams = round(max(step_g, round(g[i] / step_g) * step_g), 1) if i in g else it.grams
+        out.append(it.model_copy(update={"grams": grams}))
+    return out

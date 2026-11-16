@@ -220,8 +220,8 @@ def test_planner_check_rejects_meat_dish_names_and_returns_rescaled_days():
         {"slot": "dinner", "name": "Paneer roti", "items": [{"food_code": "IN-L003", "grams": 60},
                                                           {"food_code": "IN-A019", "grams": 60}]}]}
     errs = agent.check(PlanSubmission(days=[day]))
-    assert any("vs target" in e for e in errs) and errs[-1].startswith("Rescaled")
-    fixed = _json.loads(errs[-1].split("unchanged: ", 1)[1])
+    assert any("vs target" in e for e in errs) and errs[0].startswith("Rescaled")
+    fixed = _json.loads(errs[0].split("unchanged: ", 1)[1])
     assert agent.check(PlanSubmission(days=fixed)) == []  # the handed-back days pass the unchanged check
     named = {**day, "meals": [{**day["meals"][0], "name": "Chicken curry with rice"}]}
     assert any("dish name" in e for e in agent.check(PlanSubmission(days=[named])))
