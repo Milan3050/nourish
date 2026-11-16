@@ -56,3 +56,34 @@ async def test_profile_and_stream(client):
     assert thread.status_code == 200 and thread.json()["history"]
     other = (await client.post("/api/auth/dev-token", json={"name": "x"})).json()["token"]
     assert (await client.get("/api/threads/abc", headers={"Authorization": f"Bearer {other}"})).status_code == 404
+
+
+async def test_runs_plans_calendar_and_goals(client):
+    tok = (await client.post("/api/auth/dev-token", json={"name": "Asha"})).json()["token"]
+    h = {"Authorization": f"Bearer {tok}"}
+    await client.put("/api/profile", json={**VEG_PROFILE, "allergies": []}, headers=h)
+    g = (await client.post("/api/goals", json={"kind": "weight", "title": "Reach 65 kg", "target": 65, "unit": "kg",
+                                               "current": 60}, headers=h)).json()
+    assert g["start"] == 60
+    set_model_override(ScriptedChatModel(policy=veg_world()))
+    async with client.stream("POST", "/api/chat/t9/stream", json={"message": "1-day plan"}, headers=h) as r:
+        lines = [line async for line in r.aiter_lines()]
+    set_model_override(None)
+    final = json.loads([x for x in lines if x.startswith("data:")][-1].split(":", 1)[1])
+    run = final["run"]
+    assert run["status"] == "answered" and run["usage"]["cost_usd"] == 0 and run["has_plan"]
+    runs = (await client.get("/api/runs", headers=h)).json()
+    assert runs["total"]["runs"] == 1
+    detail = (await client.get(f"/api/runs/{run['id']}", headers=h)).json()
+    assert detail["events"] and [a["agent"] for a in detail["agents"]][-1] == "recommendation"
+    plan = (await client.post("/api/plans", json={"thread_id": "t9", "kind": "meal"}, headers=h)).json()
+    assert plan["title"] == "1-day meal plan" and plan["data"]["days"][0]["totals"]["kcal"] > 0
+    assert (await client.post("/api/plans", json={"thread_id": "t9", "kind": "workout"}, headers=h)).status_code == 409
+    sched = (await client.post("/api/calendar", json={"plan_id": plan["id"], "start_date": "2026-11-16", "weeks": 1},
+                               headers=h)).json()["entries"]
+    assert [e["date"] for e in sched] == ["2026-11-16"]
+    cal = (await client.get("/api/calendar?start=2026-11-01&end=2026-11-30", headers=h)).json()["entries"]
+    done = (await client.patch(f"/api/calendar/{cal[0]['id']}", json={"done": True}, headers=h)).json()
+    assert done["done"] is True
+    other = (await client.post("/api/auth/dev-token", json={"name": "x"})).json()["token"]
+    assert (await client.get(f"/api/runs/{run['id']}", headers={"Authorization": f"Bearer {other}"})).status_code == 404

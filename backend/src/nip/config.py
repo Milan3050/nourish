@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     max_request_tokens: int = 120_000
     macro_tolerance_pct: float = 10.0
 
+    # --- Cost accounting ------------------------------------------------------------------------
+    # USD per million tokens [input, output] by model name. Unpriced models (local) cost 0.
+    pricing: dict[str, list[float]] = {}
+    # Optional: also price each run's tokens at this model's rates, shown as an estimate.
+    pricing_reference_model: str | None = None
+
     # --- API / security ------------------------------------------------------------------------
     jwt_secret: str = Field(default="dev-only-change-me", repr=False)
     cors_origins: list[str] = ["http://localhost:5173"]

@@ -176,9 +176,11 @@ def route(state: NIPState) -> str:
 # ---------------------------------------------------------------- agents ------------------------------
 
 def _common_brief(state: NIPState) -> str:
+    goals = state.get("user_goals") or []
     return (f"<user_message>\n{state['request']}\n</user_message>\n\n"
             f"Supervisor instruction: {state.get('instruction', '')}\n"
-            f"Objectives for this request: {state.get('objectives')}\n")
+            f"Objectives for this request: {state.get('objectives')}\n"
+            + (f"The user's goals (set by the user; numbers are theirs): {_j(goals)}\n" if goals else ""))
 
 
 async def health_assessment(state: NIPState) -> dict:
@@ -383,6 +385,7 @@ async def recommendation(state: NIPState) -> dict:
         else:
             plan_block += "\nA workout plan was requested but none passed the workout checks this turn. Say so plainly."
     ctx["plan_shown"] = showable is not None or workout is not None
+    ctx["workout"], ctx["user_goals"] = workout, state.get("user_goals") or []  # numbers the answer may quote
     ctx["change_failed"] = planner_ran and showable is not None and not new_plan_passed
     evidence = [{"question": e["question"], "answer": e["answer"], "sufficient": e["sufficient"],
                  "citations": [{"chunk_id": c["chunk_id"], "title": c["title"]} for c in e["citations"]]}

@@ -629,7 +629,7 @@ def known_numbers(ctx: dict) -> set[float]:
             for m in re.findall(r"\d[\d,]*(?:\.\d+)?", x):
                 nums.add(float(m.replace(",", "")))
 
-    for key in ("health", "plan_with_totals", "evidence", "retrieved", "profile"):
+    for key in ("health", "plan_with_totals", "evidence", "retrieved", "profile", "workout", "user_goals"):
         walk(ctx.get(key))
     return nums
 

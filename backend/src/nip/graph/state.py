@@ -27,6 +27,7 @@ class NIPState(TypedDict, total=False):
     plan_requested: bool  # the message asks for a plan or a change to one (deterministic, from the text)
     requested_days: int | None  # "1-day plan" -> 1; None when the message does not say
     workout_requested: bool  # the message asks for a workout / training plan
+    user_goals: list[dict]  # the user's active goals (weight, workout, nutrition, habit), from the goals page
     blocked_reason: str | None
     # durable user context (survives across turns in a thread)
     profile: dict
