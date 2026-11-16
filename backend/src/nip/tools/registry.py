@@ -37,7 +37,8 @@ def compute_meal_nutrition(items: list[dict]) -> dict:
     return {"totals": totals.model_dump(), "unknown_codes": unknown}
 
 
-def scale_portions(meals: list[dict], kcal: float, protein_g: float, fat_g: float | None = None) -> dict:
+def scale_portions(meals: list[dict], kcal: float, protein_g: float, fat_g: float | None = None,
+                   protein_max: float | None = None) -> dict:
     """Rescale one day's portions (keeping the chosen foods) to hit kcal and protein targets exactly.
 
     `meals` is [{slot, name, items: [{food_code, grams}]}]. Returns the meals with new grams and the
@@ -51,7 +52,7 @@ def scale_portions(meals: list[dict], kcal: float, protein_g: float, fat_g: floa
     raw = {mi: SLOT_ENERGY_SHARE.get(slot, 0.1) for mi, slot in enumerate(slots)}
     share = {mi: v / sum(raw.values()) for mi, v in raw.items()} if raw else None
     scaled = scale_to_targets(db, [p for _, p in flat], kcal, protein_g, fat_g,
-                              meal_of=[mi for mi, _ in flat], meal_share=share)
+                              meal_of=[mi for mi, _ in flat], meal_share=share, protein_max=protein_max)
     out = [{**{k: v for k, v in m.items() if k != "items"}, "items": []} for m in meals]
     for (mi, _), p in zip(flat, scaled, strict=True):
         f = db.get(p.food_code)
@@ -74,10 +75,10 @@ def scale_portions(meals: list[dict], kcal: float, protein_g: float, fat_g: floa
     if pct["protein_g"] is not None and pct["protein_g"] < 90:
         advice.append("Protein is short: add or swap in a protein-dense food (dal, paneer, soya, tofu, eggs, "
                       "chicken, fish, Greek yogurt).")
-    if pct["protein_g"] is not None and pct["protein_g"] > 110:
+    if pct["protein_g"] is not None and t["protein_g"] > max(protein_max or 0, 1.1 * protein_g):
         dense = sorted({f.name for p in scaled if (f := db.get(p.food_code)) and f.per100g["kcal"]
                         and 4 * f.per100g["protein_g"] / f.per100g["kcal"] >= 0.3})
-        advice.append(f"Protein is too high for the energy target: use less of {', '.join(dense[:4]) or 'the protein foods'} "
+        advice.append(f"Protein is above the upper limit for this person: use less of {', '.join(dense[:4]) or 'the protein foods'} "
                       "and add energy-dense grains, starches or fats (rice, pasta, bread, oats, potato, banana, "
                       "nuts, milk, cooking oil).")
     if advice:

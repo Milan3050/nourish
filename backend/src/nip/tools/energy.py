@@ -45,6 +45,8 @@ PROTEIN_G_PER_KG: dict[Goal, float] = {
     Goal.general_health: 0.9,
 }
 FAT_ENERGY_FRACTION = 0.28
+PROTEIN_MAX_G_PER_KG = 2.2
+PROTEIN_MAX_ENERGY_FRACTION = 0.35
 
 KIDNEY_TERMS = ("ckd", "kidney", "renal")
 HYPERTENSION_TERMS = ("hypertension", "high blood pressure", "bp")
@@ -191,6 +193,14 @@ def assess(p: UserProfile) -> HealthProfile:
     carbs_g = round(max(0.0, (target - protein_g * 4 - fat_g * 9) / 4), 0)
     fiber_g = round(14 * target / 1000, 0)
     limits.saturated_fat_g_max = round(target * 0.10 / 9, 0)
+    # Protein is a range, not a point: the target is the minimum that serves the goal (-10% tolerance);
+    # above it, intakes are acceptable up to 2.2 g/kg and 35% of energy (top of the AMDR). Kidney disease
+    # keeps the target as the cap (and is escalated anyway).
+    if _has(KIDNEY_TERMS, p.conditions):
+        limits.protein_g_max = round(protein_g * 1.1, 0)
+    else:
+        cap = min(PROTEIN_MAX_G_PER_KG * p.weight_kg, PROTEIN_MAX_ENERGY_FRACTION * target / 4)
+        limits.protein_g_max = round(max(protein_g * 1.1, cap), 0)
 
     return HealthProfile(
         bmr_kcal=base,

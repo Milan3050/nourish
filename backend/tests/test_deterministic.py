@@ -339,3 +339,25 @@ def test_requested_day_count_is_enforced():
              for s in ("breakfast", "lunch", "dinner")]
     out = agent.prepare({"days": [{"day": n, "meals": meals} for n in (1, 2, 3)]})
     assert [d["day"] for d in out["days"]] == [1]
+
+
+def test_protein_is_a_range_with_a_deterministic_cap(db):
+    from nip.tools.registry import scale_portions
+
+    gain = assess(base_profile(age=26, height_cm=180, weight_kg=60, goal=Goal.gain_muscle))
+    assert gain.limits.protein_g_max == min(2.2 * 60, 0.35 * gain.targets.kcal / 4)
+    ckd = assess(base_profile(conditions=["ckd"]))
+    assert ckd.limits.protein_g_max == round(ckd.targets.protein_g * 1.1)
+    # The live failure: an egg/chicken/soya day for a 60 kg muscle-gain user was rejected 4x as 'protein too high'.
+    meals = [{"slot": "breakfast", "name": "Egg omelette with roti", "items": [{"food_code": "IN-M001", "grams": 120},
+                                                                          {"food_code": "IN-A019", "grams": 100}]},
+             {"slot": "lunch", "name": "Chicken curry with rice", "items": [{"food_code": "IN-N002", "grams": 150},
+                                                                          {"food_code": "IN-A015", "grams": 150}]},
+             {"slot": "dinner", "name": "Soya curry with roti", "items": [{"food_code": "IN-B024", "grams": 80},
+                                                                        {"food_code": "IN-A019", "grams": 120}]}]
+    t = gain.targets
+    res = scale_portions(meals, t.kcal, t.protein_g, t.fat_g, gain.limits.protein_g_max)
+    assert "advice" not in res and abs(res["pct_of_target"]["kcal"] - 100) <= 3
+    assert t.protein_g * 0.9 <= res["totals"]["protein_g"] <= gain.limits.protein_g_max
+    shares = [k / sum(res["meal_kcal"]) for k in res["meal_kcal"]]
+    assert all(0.2 <= x <= 0.45 for x in shares)

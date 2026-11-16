@@ -317,6 +317,7 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
     s = get_settings()
     targets = ctx["health"]["targets"]
     tol = s.macro_tolerance_pct
+    p_max = (ctx["health"].get("limits") or {}).get("protein_g_max") or targets["protein_g"] * (1 + tol / 100)
 
     async def search_foods(ingredients: list[str]) -> dict:
         """Look up several ingredients at once by plain name, e.g. ["green gram dal", "rice raw", "paneer"].
@@ -340,7 +341,8 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         out, report = [], []
         for n, d in enumerate(days, 1):
             res = await be.call("scale_portions", {"meals": d.get("meals", []), "kcal": targets["kcal"],
-                                                   "protein_g": targets["protein_g"], "fat_g": targets["fat_g"]})
+                                                   "protein_g": targets["protein_g"], "fat_g": targets["fat_g"],
+                                                   "protein_max": p_max})
             out.append({"day": d.get("day", n), "meals": res["meals"]})
             t = res["totals"]
             report.append({"day": d.get("day", n), "pct_of_target": res["pct_of_target"],
@@ -392,16 +394,19 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                         errs.append(f"day {d.day} {m.slot}: {f.name} not allowed ({why})")
                     kcal += f.per100g["kcal"] * it.grams / 100
                     protein += f.per100g["protein_g"] * it.grams / 100
-            missed = [f"day {d.day}: {label} {val:.0f} vs target {tgt:.0f} (tolerance {tol:.0f}%)"
-                      for label, val, tgt in (("kcal", kcal, targets["kcal"]), ("protein_g", protein, targets["protein_g"]))
-                      if tgt and abs(val - tgt) / tgt * 100 > tol]
+            missed = [f"day {d.day}: kcal {kcal:.0f} vs target {targets['kcal']:.0f} (tolerance {tol:.0f}%)"
+                      ] if abs(kcal - targets["kcal"]) / targets["kcal"] * 100 > tol else []
+            if protein < targets["protein_g"] * (1 - tol / 100):
+                missed.append(f"day {d.day}: protein_g {protein:.0f} below target {targets['protein_g']:.0f} (vs target)")
+            elif protein > p_max:
+                missed.append(f"day {d.day}: protein_g {protein:.0f} above the {p_max:.0f} g upper limit (vs target)")
             errs += missed
         only_targets = errs and all("vs target" in e for e in errs)
         if only_targets:  # the foods are fine: hand back the deterministic rescale as feedback
             fixed = []
             for d in sub.days:
                 res = scale_portions_tool([m.model_dump() for m in d.meals], targets["kcal"], targets["protein_g"],
-                                          targets["fat_g"])
+                                          targets["fat_g"], p_max)
                 if "advice" in res:
                     errs.append(f"day {d.day}: {res['advice']}")
                     break

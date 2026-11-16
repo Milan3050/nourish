@@ -230,8 +230,8 @@ SLOT_ENERGY_SHARE = {"breakfast": 0.25, "mid_morning": 0.10, "lunch": 0.35, "sna
 
 def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_g: float,
                      fat_g: float | None = None, meal_of: list[int] | None = None,
-                     meal_share: dict[int, float] | None = None, min_g: float = 5, max_g: float = 500,
-                     step_g: float = 5) -> list[FoodPortion]:
+                     meal_share: dict[int, float] | None = None, protein_max: float | None = None,
+                     min_g: float = 5, max_g: float = 500, step_g: float = 5) -> list[FoodPortion]:
     """Rescale portions so a day's items hit kcal and protein exactly, and if possible fat and each
     meal's share of the day's energy (so lunch is not 100 kcal while breakfast is 1,500).
 
@@ -266,8 +266,10 @@ def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_
     def total(k: str, x: dict[int, float]) -> float:
         return sum(per_g[k][i] * x[i] for i in idx)
 
-    def day_ok(x: dict[int, float]) -> bool:
-        return abs(total("kcal", x) - kcal) <= 0.02 * kcal and abs(total("protein_g", x) - protein_g) <= 0.02 * protein_g
+    p_lo, p_hi = 0.98 * protein_g, max(protein_max or 0, 1.02 * protein_g)
+
+    def day_ok(x: dict[int, float]) -> bool:  # kcal on target, protein inside its acceptable range
+        return abs(total("kcal", x) - kcal) <= 0.02 * kcal and p_lo <= total("protein_g", x) <= p_hi
 
     def meals_ok(x: dict[int, float]) -> bool:
         return all(abs(sum(per_g["kcal"][i] * x[i] for i in idx if meal_of[i] == m) - t) <= 0.15 * t
@@ -277,8 +279,13 @@ def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_
                 for m, t in meal_kcal_target.items()]
     day = [(per_g["kcal"], kcal)]
     prot, fat = [(per_g["protein_g"], protein_g)], [(per_g["fat_g"], fat_g)] if fat_g else []
-    attempts = ([(per_meal + prot + fat, True), (per_meal + prot, True)] if len(meals) > 1 else []) + \
-        [(day + prot + fat, False), (day + prot, False)]
+    # Most complete first. Balanced meals and fat matter more than hitting protein to the gram, so a set
+    # with protein pinned is tried before the same set with protein free inside its range.
+    split = len(meals) > 1
+    edges = [(per_g["protein_g"], 0.99 * p_hi), (per_g["protein_g"], 1.01 * p_lo)]  # protein at a range edge
+    attempts = ([(per_meal + prot + fat, True), (per_meal + fat, True), (per_meal + prot, True), (per_meal, True),
+                 (per_meal + edges[:1], True), (per_meal + edges[1:], True)] if split else []) + \
+        [(day + prot + fat, False), (day + fat, False), (day + prot, False), (day, False)]
     g = None
     for cons, needs_meals in attempts:
         if not cons[-1][1]:
@@ -287,11 +294,12 @@ def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_
         if day_ok(cand) and (not needs_meals or meals_ok(cand)):
             g = cand
             break
-    if g is None:  # infeasible within bounds: keep whichever of (kcal+protein, kcal only) misses least
-        cands = [_min_change([per_g["kcal"], per_g["protein_g"]], [kcal, protein_g], b, lo, hi),
-                 _min_change([per_g["kcal"]], [kcal], b, lo, hi)]
-        g = min(cands, key=lambda x: abs(total("kcal", x) - kcal) / kcal +
-                abs(total("protein_g", x) - protein_g) / protein_g)
+    if g is None:  # infeasible within bounds: pin protein at the nearest edge of its range, else kcal only
+        def miss(x: dict[int, float]) -> float:
+            p = total("protein_g", x)
+            return abs(total("kcal", x) - kcal) / kcal + max(p_lo - p, p - p_hi, 0) / protein_g
+        cands = [_min_change([per_g["kcal"], per_g["protein_g"]], [kcal, edge], b, lo, hi) for edge in (p_lo, p_hi)]
+        g = min([*cands, _min_change([per_g["kcal"]], [kcal], b, lo, hi)], key=miss)
     out = []
     for i, it in enumerate(items):
         grams = round(max(step_g, round(g[i] / step_g) * step_g), 1) if i in g else it.grams

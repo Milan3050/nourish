@@ -101,6 +101,8 @@ class NutrientLimits(BaseModel):
     saturated_fat_g_max: float | None = None
     potassium_mg_max: float | None = None  # set for kidney disease / some medications
     vitamin_k_ug_consistent: bool = False  # warfarin: keep intake consistent, avoid spikes
+    # Upper end of acceptable protein: min(2.2 g/kg, 35% of energy), never below target + tolerance.
+    protein_g_max: float | None = None
 
 
 class RiskFlag(BaseModel):

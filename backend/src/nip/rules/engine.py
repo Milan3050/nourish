@@ -117,9 +117,17 @@ def validate_plan(db: FoodDB, profile: UserProfile, health: HealthProfile, plan:
         if d.kcal < floor and not health.escalation_required:
             v.append(Violation(rule_id="calorie_floor", severity="critical", location=where,
                                message=f"{d.kcal:.0f} kcal is below the {floor} kcal floor."))
+        p_max = health.limits.protein_g_max or t.protein_g * (1 + tol / 100)
+        if d.protein_g < t.protein_g * (1 - tol / 100):
+            v.append(Violation(rule_id="target_protein", severity="critical", location=where,
+                               message=f"protein {d.protein_g:.0f} g is below the {t.protein_g:.0f} g target.",
+                               fix_hint="Add or enlarge protein-dense foods."))
+        elif d.protein_g > p_max:
+            v.append(Violation(rule_id="protein_max", severity="critical", location=where,
+                               message=f"protein {d.protein_g:.0f} g is above the {p_max:.0f} g upper limit.",
+                               fix_hint="Swap some protein-dense food for grains, fruit or vegetables."))
         for label, actual, target, limit, sev in (
             ("kcal", d.kcal, t.kcal, tol, "critical"),
-            ("protein", d.protein_g, t.protein_g, tol, "critical"),
             ("carbs", d.carbs_g, t.carbs_g, tol2, "warning"),
             ("fat", d.fat_g, t.fat_g, tol2, "warning"),
         ):
