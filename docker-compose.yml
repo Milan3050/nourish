@@ -29,6 +29,7 @@ services:
     command: ["python", "-m", "nip.mcp_server.server"]
     environment:
       NIP_MCP_HOST: 0.0.0.0
+      NIP_MCP_ALLOWED_HOSTS: "mcp:*,localhost:*,127.0.0.1:*"  # Host headers accepted (DNS-rebinding guard)
       NIP_DATABASE_URL: postgresql://nip:nip@db:5432/nip
       NIP_EMBEDDINGS_BASE_URL: http://host.docker.internal:11434
     extra_hosts: ["host.docker.internal:host-gateway"]
