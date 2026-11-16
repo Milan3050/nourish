@@ -412,6 +412,7 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                     break
                 fixed.append({"day": d.day, "meals": res["meals"]})
             else:
+                ctx["rescaled_candidate"] = {"days": fixed, "notes": sub.notes}
                 errs.insert(0, "Rescaled with scale_portions; these days meet the targets. Submit them "
                                "unchanged: " + json.dumps(fixed))
         return errs[:14]

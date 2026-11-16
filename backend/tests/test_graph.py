@@ -376,3 +376,22 @@ async def test_meal_and_workout_request_builds_both(run):
     final, _, _ = await run(w, "Build me a 1-day meal plan and a workout plan", profile=VEG_PROFILE)
     rec = final["recommendation"]
     assert rec["plan"] and rec["workout"], [d["override"] for d in final["decisions"]]
+
+
+async def test_passing_rescaled_plan_is_accepted_when_the_planner_runs_out_of_steps(run):
+    class Stubborn(World):
+        def meal(self, messages):  # keeps submitting the same off-target day, never the rescaled one
+            done = {m.name for m in messages if getattr(m, "name", None)}
+            if "search_foods" not in done:
+                return call("search_foods", ingredients=["dal"])
+            meals = [{"slot": s, "name": n, "items": [{"food_code": c, "grams": 60}]}
+                     for s, n, c in (("breakfast", "Paneer", "IN-L003"), ("lunch", "Rice", "IN-A015"),
+                                     ("dinner", "Green gram dal", "IN-B010"))]
+            return call("submit_result", days=[{"day": 1, "meals": meals}])
+
+    w = Stubborn(VEG_PROFILE, "IN-L003", "IN-A015", [])
+    w.supervisor_script = ["health_assessment", "meal_planning", "validation", "recommendation"]
+    final, events, _ = await run(w, "1-day plan please, how much should I weigh?", profile=VEG_PROFILE)
+    assert final["plans"] and final["validations"][-1]["verdict"] == "PASS" and final["recommendation"]["plan"]
+    assert any(e["type"] == "agent_note" for e in events)
+    assert final["recommendation"]["key_points"][0].startswith("For your height, a healthy weight is")

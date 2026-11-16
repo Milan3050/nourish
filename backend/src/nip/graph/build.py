@@ -38,6 +38,8 @@ PLAN_REQUEST = re.compile(
 
 WORKOUT_REQUEST = re.compile(r"\b(?:work ?outs?|exercise (?:plan|routine|program)|training (?:plan|program|split)|"
                              r"gym (?:plan|routine)|fitness plan|strength training|exercise routine)\b", re.I)
+WEIGHT_QUESTION = re.compile(r"how much should i weigh|(?:ideal|healthy|right|normal|target) (?:body )?weight|"
+                             r"weight for my height|am i (?:under|over)weight", re.I)
 MEAL_WORDS = re.compile(r"\b(?:meals?|diet|food|eat|menu|nutrition|breakfast|lunch|dinner)\b", re.I)
 
 NUM_WORDS = {"one": 1, "a": 1, "single": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
@@ -129,6 +131,7 @@ async def intake(state: NIPState) -> dict:
         "request": check.text, "input_flags": check.flags, "turn": turn, "turn_steps": 0,
         "turn_exclusions": request_exclusions(get_food_db(), check.text, region),
         "workout_requested": bool(WORKOUT_REQUEST.search(check.text)),
+        "weight_question": bool(WEIGHT_QUESTION.search(check.text)),
         "plan_requested": bool(PLAN_REQUEST.search(check.text)) and (
             not WORKOUT_REQUEST.search(check.text) or bool(MEAL_WORDS.search(check.text))),
         "requested_days": requested_days(check.text),
@@ -268,7 +271,20 @@ async def meal_planning(state: NIPState) -> dict:
              f"Foods the user excluded in this message (never use them): {state.get('turn_exclusions') or 'none'}"
              + revising)
     ctx["requested_days"] = state.get("requested_days")
-    res = await specs.planner_agent(ctx, emit).run(brief)
+    agent = specs.planner_agent(ctx, emit)
+    res = await agent.run(brief)
+    cand = ctx.get("rescaled_candidate")
+    if res.output is None and cand:
+        # The agent ran out of steps after its own check handed back a rescaled version of its last plan
+        # (its foods, portions computed by scale_portions). Accept it only if it passes every check.
+        try:
+            sub = specs.PlanSubmission.model_validate(agent.prepare(cand))
+            if not agent.check(sub):
+                res.output = sub
+                emit({"type": "agent_note", "agent": "Meal Planning Agent", "ts": time.time(),
+                      "text": "accepted the tool-rescaled version of the agent's last plan (it passes every check)"})
+        except Exception as e:  # a candidate that does not validate is simply not used
+            log.warning("planner.candidate_rejected", error=str(e)[:200])
     upd: dict[str, Any] = {"agent_runs": [_run_record(state, "meal_planning", res)],
                            "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
     if res.output:
@@ -418,6 +434,11 @@ async def recommendation(state: NIPState) -> dict:
                              summary="I can't advise on this safely. Questions about medicines, diagnoses or "
                                      "treatment belong with your doctor or pharmacist. I can help with food choices "
                                      "that fit the plan they give you.", citations=rec.citations)
+    if state.get("weight_question") and h and len(h.get("healthy_weight_kg") or []) == 2:
+        lo, hi = h["healthy_weight_kg"]
+        cut = "18.5-22.9, the Indian cut-offs" if ctx["profile"].get("region") == "IN" else "18.5-24.9"
+        rec.key_points = [f"For your height, a healthy weight is {lo}-{hi} kg (BMI {cut}); your BMI is {h.get('bmi')}.",
+                          *rec.key_points]
     if h and h.get("escalation_required"):
         rec.key_points = ["Because of your health situation, please review any diet change with a doctor "
                           "or registered dietitian.", *rec.key_points]
