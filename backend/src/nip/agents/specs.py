@@ -333,6 +333,17 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         profile = UserProfile.model_validate(ctx["profile"])
         blocked = {t for a in [*profile.allergies, *profile.intolerances] for t in alias_terms(a)}
         errs: list[str] = []
+        nums = [d.day for d in sub.days]
+        if len(set(nums)) != len(nums):
+            errs.append(f"day numbers repeat ({nums}): put all of a day's meals in one day entry, days 1..N")
+        need = min(profile.meals_per_day, 3)
+        for d in sub.days:
+            slots = {m.slot for m in d.meals}
+            if len(slots) < need or len(slots) != len(d.meals):
+                errs.append(f"day {d.day}: needs at least {need} meals with different slots "
+                            f"(breakfast, lunch, dinner...); has {sorted(m.slot for m in d.meals)}")
+        if errs:
+            return errs
         for d in sub.days:
             kcal = protein = 0.0
             for m in d.meals:

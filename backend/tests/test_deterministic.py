@@ -217,6 +217,8 @@ def test_planner_check_rejects_meat_dish_names_and_returns_rescaled_days():
     ctx = {"profile": profile.model_dump(mode="json"), "health": assess(profile).model_dump()}
     agent = planner_agent(ctx)
     day = {"day": 1, "meals": [
+        {"slot": "breakfast", "name": "Poha with milk", "items": [{"food_code": "IN-A011", "grams": 40},
+                                                                 {"food_code": "IN-L002", "grams": 150}]},
         {"slot": "lunch", "name": "Dal rice", "items": [{"food_code": "IN-B010", "grams": 50},
                                                         {"food_code": "IN-A015", "grams": 60}]},
         {"slot": "dinner", "name": "Paneer roti", "items": [{"food_code": "IN-L003", "grams": 60},
@@ -225,5 +227,15 @@ def test_planner_check_rejects_meat_dish_names_and_returns_rescaled_days():
     assert any("vs target" in e for e in errs) and errs[0].startswith("Rescaled")
     fixed = _json.loads(errs[0].split("unchanged: ", 1)[1])
     assert agent.check(PlanSubmission(days=fixed)) == []  # the handed-back days pass the unchanged check
-    named = {**day, "meals": [{**day["meals"][0], "name": "Chicken curry with rice"}]}
+    named = {**day, "meals": [{**day["meals"][0], "name": "Chicken curry with rice"}, *day["meals"][1:]]}
     assert any("dish name" in e for e in agent.check(PlanSubmission(days=[named])))
+
+
+def test_planner_check_rejects_one_meal_days():
+    from nip.agents.specs import PlanSubmission, planner_agent
+
+    profile = base_profile(diet_pattern=DietPattern.vegetarian)
+    agent = planner_agent({"profile": profile.model_dump(mode="json"), "health": assess(profile).model_dump()})
+    meal = {"slot": "lunch", "name": "Dal rice", "items": [{"food_code": "IN-B010", "grams": 300}]}
+    errs = agent.check(PlanSubmission(days=[{"day": 1, "meals": [meal]}, {"day": 1, "meals": [meal]}]))
+    assert any("repeat" in e for e in errs) and any("at least 3 meals" in e for e in errs)
