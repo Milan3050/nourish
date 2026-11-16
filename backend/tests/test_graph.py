@@ -273,3 +273,14 @@ async def test_optional_questions_do_not_block_an_assessed_profile(run):
     final, _, _ = await run(w, "high protein plan please", profile=w.profile_fields)
     assert final["status"] == "answered" and final["health"]["escalation_required"]
     assert final["health"]["follow_up_questions"] == ["Which medications?"]
+
+
+async def test_foods_excluded_in_the_message_are_enforced_this_turn_only(run):
+    w = veg_world()  # the scripted planner always uses paneer (IN-L003) at breakfast
+    w.supervisor_script = ["health_assessment", "meal_planning", "validation", "recommendation"]
+    final, _, _ = await run(w, "1-day plan without paneer please", profile=VEG_PROFILE)
+    assert final["turn_exclusions"] == ["paneer"]
+    assert not final.get("plans") and not final["recommendation"]["plan"]  # the planner's own check refused it
+    planner = [r for r in final["agent_runs"] if r["agent"] == "meal_planning"]
+    assert planner and "disliked (paneer)" in planner[0]["error"]
+    assert "paneer" not in final["profile"]["dislikes"]  # not saved as a lasting preference

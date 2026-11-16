@@ -26,7 +26,7 @@ from nip.graph.state import NIPState
 from nip.graph.supervisor import enforce, fallback_decision, llm_decide
 from nip.security.guard import BLOCKED_RESPONSES, check_input
 from nip.tools.energy import required_missing
-from nip.tools.foods import get_food_db
+from nip.tools.foods import get_food_db, request_exclusions
 
 # Example ingredient names that exist in each region's table (search vocabulary for the planner).
 STAPLES = {
@@ -77,6 +77,14 @@ def _ctx(state: NIPState) -> dict:
     }
 
 
+def _with_exclusions(ctx: dict, state: NIPState) -> dict:
+    """Foods excluded in this message become dislikes for planning and validation only (not saved)."""
+    ex = state.get("turn_exclusions") or []
+    if ex:
+        ctx["profile"]["dislikes"] = sorted({*ctx["profile"].get("dislikes", []), *ex})
+    return ctx
+
+
 def _run_record(state: NIPState, agent: str, res: AgentResult) -> dict:
     return {"turn": state.get("turn"), "agent": agent, "status": res.status, "steps": res.steps,
             "tokens": res.tokens, "ms": res.ms, "error": res.error}
@@ -88,8 +96,10 @@ async def intake(state: NIPState) -> dict:
     emit = _writer()
     check = check_input(state.get("request", ""))
     turn = (state.get("turn") or 0) + 1
+    region = (state.get("profile") or {}).get("region", "IN")
     upd: dict[str, Any] = {
         "request": check.text, "input_flags": check.flags, "turn": turn, "turn_steps": 0,
+        "turn_exclusions": request_exclusions(get_food_db(), check.text, region),
         "turn_revisions": 0, "turn_tokens": 0, "recommendation": None, "next": None, "objectives": [],
         "pending_questions": [], "status": "running", "blocked_reason": None,
         "history": [{"role": "user", "content": check.text, "turn": turn}],
@@ -198,7 +208,7 @@ async def nutrition_knowledge(state: NIPState) -> dict:
 
 
 async def meal_planning(state: NIPState) -> dict:
-    emit, ctx = _writer(), _ctx(state)
+    emit, ctx = _writer(), _with_exclusions(_ctx(state), state)
     plans, vals = state.get("plans") or [], state.get("validations") or []
     revising = ""
     turn_plan = plans and plans[-1].get("turn") == state.get("turn")
@@ -218,7 +228,8 @@ async def meal_planning(state: NIPState) -> dict:
              f"\nProfile: {_j(ctx['profile'])}\nDaily targets: {_j(h['targets'])}\nLimits: {_j(h['limits'])}\n"
              f"Risk flags: {[f['code'] for f in h['risk_flags']]}\nMeals per day: {ctx['profile'].get('meals_per_day', 3)}\n"
              f"Relevant evidence: {_j(evidence)}\nDefault to 3 days unless the user asked for a different number (max 7).\n"
-             f"Staples in this food table: {STAPLES.get(ctx['profile'].get('region', 'IN'), '')}"
+             f"Staples in this food table: {STAPLES.get(ctx['profile'].get('region', 'IN'), '')}\n"
+             f"Foods the user excluded in this message (never use them): {state.get('turn_exclusions') or 'none'}"
              + revising)
     res = await specs.planner_agent(ctx, emit).run(brief)
     upd: dict[str, Any] = {"agent_runs": [_run_record(state, "meal_planning", res)],
@@ -241,7 +252,7 @@ async def meal_planning(state: NIPState) -> dict:
 
 
 async def validation(state: NIPState) -> dict:
-    emit, ctx = _writer(), _ctx(state)
+    emit, ctx = _writer(), _with_exclusions(_ctx(state), state)
     plan = ctx["plan"]
     ctx["plan"] = {"days": plan["days"], "region": plan["region"], "notes": plan.get("notes", ""),
                    "version": plan["version"]}

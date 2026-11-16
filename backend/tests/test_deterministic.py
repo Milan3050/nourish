@@ -239,3 +239,14 @@ def test_planner_check_rejects_one_meal_days():
     meal = {"slot": "lunch", "name": "Dal rice", "items": [{"food_code": "IN-B010", "grams": 300}]}
     errs = agent.check(PlanSubmission(days=[{"day": 1, "meals": [meal]}, {"day": 1, "meals": [meal]}]))
     assert any("repeat" in e for e in errs) and any("at least 3 meals" in e for e in errs)
+
+
+def test_request_exclusions_and_token_dislikes(db):
+    from nip.tools.foods import request_exclusions
+
+    assert request_exclusions(db, "Swap the dinner for something without paneer", "IN") == ["paneer"]
+    assert request_exclusions(db, "avoid brown rice and spinach", "IN") == ["brown rice", "spinach"]
+    assert request_exclusions(db, "I have no time to cook, swap dinner", "US") == []
+    p = UserProfile(dislikes=["brown rice", "moong dal"])
+    assert not is_allowed(db.get("IN-A013"), p)[0] and is_allowed(db.get("IN-A015"), p)[0]  # brown vs milled
+    assert not is_allowed(db.get("IN-B010"), p)[0] and is_allowed(db.get("IN-B001"), p)[0]  # green vs bengal gram

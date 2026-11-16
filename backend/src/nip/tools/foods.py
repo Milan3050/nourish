@@ -122,9 +122,12 @@ def is_allowed(food: Food, p: UserProfile) -> tuple[bool, str | None]:
     for a in p.allergies:  # free-text allergies we have no tag for ("kiwi", "mango")
         if alias_terms(a) == {a} and re.search(rf"(?<![a-z]){re.escape(a)}", name):
             return False, f"matches allergy '{a}'"
-    for d in p.dislikes:
-        if re.search(rf"(?<![a-z]){re.escape(d)}", name):
-            return False, f"disliked ({d})"
+    if p.dislikes:  # token match with synonyms and plurals: "brown rice" excludes "Rice, raw, brown"
+        name_toks = set(_tokens(food.name))
+        for d in p.dislikes:
+            dt = set(_tokens(expand_food_query(d, food.region)))
+            if dt and dt <= name_toks:
+                return False, f"disliked ({d})"
 
     dp = p.diet_pattern
     if dp != DietPattern.omnivore:
@@ -266,3 +269,33 @@ def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_
         grams = round(max(step_g, round(g[i] / step_g) * step_g), 1) if i in g else it.grams
         out.append(it.model_copy(update={"grams": grams}))
     return out
+
+
+EXCLUSION_CUES = re.compile(
+    r"\b(?:without|no|not|except|instead of|other than|minus|skip|avoid|remove|replace|swap out|hold the|"
+    r"don't want|do not want|dont want)\s+(?:the\s+|any\s+|my\s+)?([a-z][a-z' ,-]{1,80}?)"
+    r"(?=\s*(?:[.;!?]|$|\b(?:for|in|at|on|with|please|today|tomorrow|anymore|any more|this|that|but)\b))", re.I)
+
+
+NOT_FOODS = frozenset({"time", "fuss", "problem", "way", "idea", "thank", "worry", "need", "more", "less", "longer",
+                       "one", "day", "meal", "dinner", "lunch", "breakfast", "snack", "plan", "cooking", "cook",
+                       "change", "stress", "rush", "hurry", "budget", "money", "cost", "effort", "prep"})
+
+
+def request_exclusions(db: FoodDB, text: str, region: str | None) -> list[str]:
+    """Foods the user rules out in this message ("without paneer", "no rice or onion please").
+
+    Only phrases that name a food in the region's table count, so "no time" or "swap the dinner" are
+    ignored. Returned terms are used as this turn's dislikes, which every food check already enforces."""
+    toks = [db._tok[f.code] for f in db.foods if not region or f.region == region]
+    out = []
+    for m in EXCLUSION_CUES.finditer(text):
+        for phrase in re.split(r"\s*(?:,|\band\b|\bor\b|\bnor\b)\s*", m.group(1).lower()):
+            words = [w for w in phrase.split() if w not in ("some", "a", "an")]
+            for n in range(len(words), 0, -1):  # longest leading food name ("brown rice" before "brown")
+                cand = " ".join(words[:n])
+                q = set(_tokens(expand_food_query(cand, region)))
+                if q and not q & NOT_FOODS and any(q <= t for t in toks):
+                    out.append(cand)
+                    break
+    return sorted(set(out))
