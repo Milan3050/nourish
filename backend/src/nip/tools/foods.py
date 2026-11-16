@@ -223,47 +223,75 @@ def _min_change(coef: list[dict[int, float]], targets: list[float], b: dict[int,
     return g
 
 
-def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_g: float,
-                     fat_g: float | None = None, min_g: float = 5, max_g: float = 500,
-                     step_g: float = 5) -> list[FoodPortion]:
-    """Rescale portions so a day's items hit kcal and protein (and fat, if the mix allows) exactly.
+# Default share of the day's energy per meal slot (renormalised over the slots a day has).
+SLOT_ENERGY_SHARE = {"breakfast": 0.25, "mid_morning": 0.10, "lunch": 0.35, "snack": 0.10, "dinner": 0.30,
+                     "bedtime": 0.05}
 
-    Minimum-change solve: start from the planner's portions scaled uniformly to the energy target (b),
-    then find the portions closest to b, in relative terms, that meet the targets:
-        minimise sum(((g_i - b_i) / b_i)^2)  subject to  kcal(g) = K, protein(g) = P [, fat(g) = F]
-    Each portion stays within 0.3-3x of b and within [min_g, max_g], so a dish keeps its character
-    (no "chicken curry" with 5 g of chicken). If fat cannot also be met, only kcal and protein are
-    pinned. If the mix cannot reach the targets within the bounds, the result is as close as the bounds
-    allow and the caller reports the gap. Unknown codes are left unchanged.
+
+def scale_to_targets(db: FoodDB, items: list[FoodPortion], kcal: float, protein_g: float,
+                     fat_g: float | None = None, meal_of: list[int] | None = None,
+                     meal_share: dict[int, float] | None = None, min_g: float = 5, max_g: float = 500,
+                     step_g: float = 5) -> list[FoodPortion]:
+    """Rescale portions so a day's items hit kcal and protein exactly, and if possible fat and each
+    meal's share of the day's energy (so lunch is not 100 kcal while breakfast is 1,500).
+
+    Minimum-change solve: start from the planner's portions scaled to the energy target (b), then find
+    the portions closest to b, in relative terms, that meet the targets:
+        minimise sum(((g_i - b_i) / b_i)^2)  subject to  linear targets (kcal per meal or per day,
+        protein, fat)
+    Target sets are tried from most to least complete: meal shares + protein + fat, meal shares +
+    protein, day kcal + protein + fat, day kcal + protein. Each portion stays within 0.3-3x of b and
+    within [min_g, max_g], so a dish keeps its character (no "chicken curry" with 5 g of chicken). If
+    the mix cannot reach the targets within the bounds, the result is as close as the bounds allow and
+    the caller reports the gap. Unknown codes are left unchanged.
     """
     foods = [db.get(it.food_code) for it in items]
     idx = [i for i, f in enumerate(foods) if f is not None]
     if not idx or kcal <= 0 or protein_g <= 0:
         return list(items)
     per_g = {k: {i: foods[i].per100g[k] / 100 for i in idx} for k in ("kcal", "protein_g", "fat_g")}
+    meals = sorted({meal_of[i] for i in idx}) if meal_of and meal_share else []
+    meal_kcal_target = {m: meal_share[m] * kcal for m in meals} if meals else {}
+    start_meal = {m: sum(per_g["kcal"][i] * items[i].grams for i in idx if meal_of[i] == m) for m in meals}
     start = sum(per_g["kcal"][i] * items[i].grams for i in idx)
-    t = kcal / start if start > 0 else 1.0
-    b = {i: min(max(items[i].grams * t, min_g), max_g) for i in idx}
+
+    def start_scale(i: int) -> float:
+        if meals and start_meal[meal_of[i]] > 0:
+            return meal_kcal_target[meal_of[i]] / start_meal[meal_of[i]]
+        return kcal / start if start > 0 else 1.0
+    b = {i: min(max(items[i].grams * start_scale(i), min_g), max_g) for i in idx}
     lo = {i: max(min_g, 0.3 * b[i]) for i in idx}
     hi = {i: min(max_g, 3 * b[i]) for i in idx}
 
-    def hits(g: dict[int, float]) -> bool:
-        return all(abs(sum(per_g[k][i] * g[i] for i in idx) - tgt) <= 0.02 * tgt
-                   for k, tgt in (("kcal", kcal), ("protein_g", protein_g)))
+    def total(k: str, x: dict[int, float]) -> float:
+        return sum(per_g[k][i] * x[i] for i in idx)
 
+    def day_ok(x: dict[int, float]) -> bool:
+        return abs(total("kcal", x) - kcal) <= 0.02 * kcal and abs(total("protein_g", x) - protein_g) <= 0.02 * protein_g
+
+    def meals_ok(x: dict[int, float]) -> bool:
+        return all(abs(sum(per_g["kcal"][i] * x[i] for i in idx if meal_of[i] == m) - t) <= 0.15 * t
+                   for m, t in meal_kcal_target.items())
+
+    per_meal = [({i: per_g["kcal"][i] if meal_of[i] == m else 0.0 for i in idx}, t)
+                for m, t in meal_kcal_target.items()]
+    day = [(per_g["kcal"], kcal)]
+    prot, fat = [(per_g["protein_g"], protein_g)], [(per_g["fat_g"], fat_g)] if fat_g else []
+    attempts = ([(per_meal + prot + fat, True), (per_meal + prot, True)] if len(meals) > 1 else []) + \
+        [(day + prot + fat, False), (day + prot, False)]
     g = None
-    if fat_g:
-        g = _min_change([per_g["kcal"], per_g["protein_g"], per_g["fat_g"]], [kcal, protein_g, fat_g], b, lo, hi)
-        g = g if hits(g) else None
-    if g is None:
-        g = _min_change([per_g["kcal"], per_g["protein_g"]], [kcal, protein_g], b, lo, hi)
-    if not hits(g):  # infeasible within bounds: keep whichever of (kcal+protein, kcal only) misses least
-        alt = _min_change([per_g["kcal"]], [kcal], b, lo, hi)
-
-        def err(x: dict[int, float]) -> float:
-            return sum(abs(sum(per_g[k][i] * x[i] for i in idx) - tgt) / tgt
-                       for k, tgt in (("kcal", kcal), ("protein_g", protein_g)))
-        g = min((g, alt), key=err)
+    for cons, needs_meals in attempts:
+        if not cons[-1][1]:
+            continue
+        cand = _min_change([c for c, _ in cons], [t for _, t in cons], b, lo, hi)
+        if day_ok(cand) and (not needs_meals or meals_ok(cand)):
+            g = cand
+            break
+    if g is None:  # infeasible within bounds: keep whichever of (kcal+protein, kcal only) misses least
+        cands = [_min_change([per_g["kcal"], per_g["protein_g"]], [kcal, protein_g], b, lo, hi),
+                 _min_change([per_g["kcal"]], [kcal], b, lo, hi)]
+        g = min(cands, key=lambda x: abs(total("kcal", x) - kcal) / kcal +
+                abs(total("protein_g", x) - protein_g) / protein_g)
     out = []
     for i, it in enumerate(items):
         grams = round(max(step_g, round(g[i] / step_g) * step_g), 1) if i in g else it.grams

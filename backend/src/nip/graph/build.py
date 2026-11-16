@@ -294,10 +294,16 @@ async def recommendation(state: NIPState) -> dict:
                           "Do not present it.")
     planner_ran = any(r["agent"] == "meal_planning" and r.get("turn") == state.get("turn")
                       for r in state.get("agent_runs") or [])
+    new_plan_passed = showable is not None and plans[-1].get("turn") == state.get("turn")
     if showable is None and planner_ran:
         plan_block += ("\nMeal planning was attempted this turn but no plan passed validation. Say plainly that "
                        "you could not produce a safe plan this time and why; do not describe a plan.")
+    elif planner_ran and not new_plan_passed:
+        plan_block = ("The user asked for a change, but no revised plan passed validation this turn. The plan "
+                      "below is their EXISTING plan, unchanged. Say plainly that the change could not be made "
+                      "this time; do not describe any change.\n" + plan_block)
     ctx["plan_shown"] = showable is not None
+    ctx["change_failed"] = planner_ran and showable is not None and not new_plan_passed
     evidence = [{"question": e["question"], "answer": e["answer"], "sufficient": e["sufficient"],
                  "citations": [{"chunk_id": c["chunk_id"], "title": c["title"]} for c in e["citations"]]}
                 for e in ctx["evidence"]]

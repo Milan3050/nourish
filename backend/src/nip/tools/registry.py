@@ -14,7 +14,7 @@ from typing import Any
 from nip.domain.models import FoodPortion, HealthProfile, MealPlan, Region, UserProfile
 from nip.rules.engine import compute_plan_totals, validate_plan
 from nip.tools.energy import assess
-from nip.tools.foods import compute_totals, get_food_db, scale_to_targets
+from nip.tools.foods import SLOT_ENERGY_SHARE, compute_totals, get_food_db, scale_to_targets
 
 
 def search_foods(query: str, region: str, profile: dict | None = None, limit: int = 8) -> dict:
@@ -47,7 +47,11 @@ def scale_portions(meals: list[dict], kcal: float, protein_g: float, fat_g: floa
     flat = [(mi, FoodPortion(food_code=it["food_code"], food_name=it.get("food_name") or it["food_code"],
                              grams=float(it.get("grams") or 100)))
             for mi, m in enumerate(meals) for it in m.get("items", [])]
-    scaled = scale_to_targets(db, [p for _, p in flat], kcal, protein_g, fat_g)
+    slots = [m.get("slot", "") for m in meals]
+    raw = {mi: SLOT_ENERGY_SHARE.get(slot, 0.1) for mi, slot in enumerate(slots)}
+    share = {mi: v / sum(raw.values()) for mi, v in raw.items()} if raw else None
+    scaled = scale_to_targets(db, [p for _, p in flat], kcal, protein_g, fat_g,
+                              meal_of=[mi for mi, _ in flat], meal_share=share)
     out = [{**{k: v for k, v in m.items() if k != "items"}, "items": []} for m in meals]
     for (mi, _), p in zip(flat, scaled, strict=True):
         f = db.get(p.food_code)
@@ -58,7 +62,9 @@ def scale_portions(meals: list[dict], kcal: float, protein_g: float, fat_g: floa
     pct = {"kcal": round(100 * t["kcal"] / kcal) if kcal else None,
            "protein_g": round(100 * t["protein_g"] / protein_g) if protein_g else None,
            "fat_g": round(100 * t["fat_g"] / fat_g) if fat_g else None}
-    res = {"meals": out, "totals": t, "pct_of_target": pct, "unknown_codes": unknown}
+    meal_kcal = [round(sum(db.get(p.food_code).per100g["kcal"] * p.grams / 100 for mi, p in zip(
+        (m for m, _ in flat), scaled, strict=True) if mi == k and db.get(p.food_code))) for k in range(len(meals))]
+    res = {"meals": out, "totals": t, "pct_of_target": pct, "meal_kcal": meal_kcal, "unknown_codes": unknown}
     advice = []
     if pct["kcal"] is not None and pct["kcal"] < 90:
         advice.append("Energy is short within realistic portions: add energy-dense foods (rice, bread, oats, roti, "

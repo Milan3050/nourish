@@ -250,3 +250,33 @@ def test_request_exclusions_and_token_dislikes(db):
     p = UserProfile(dislikes=["brown rice", "moong dal"])
     assert not is_allowed(db.get("IN-A013"), p)[0] and is_allowed(db.get("IN-A015"), p)[0]  # brown vs milled
     assert not is_allowed(db.get("IN-B010"), p)[0] and is_allowed(db.get("IN-B001"), p)[0]  # green vs bengal gram
+
+
+def test_partial_edit_keeps_untouched_meals():
+    from nip.agents.specs import planner_agent
+
+    profile = base_profile(diet_pattern=DietPattern.vegetarian)
+    current = {"version": 1, "days": [{"day": 1, "meals": [
+        {"slot": s, "name": s, "items": [{"food_code": "IN-B010", "food_name": "x", "grams": 100}]}
+        for s in ("breakfast", "lunch", "dinner")]}]}
+    agent = planner_agent({"profile": profile.model_dump(mode="json"), "health": assess(profile).model_dump(),
+                           "plan": current})
+    new_dinner = {"slot": "dinner", "name": "Rajma rice", "items": [{"food_code": "IN-B020", "grams": 80}]}
+    out = agent.prepare({"days": [{"day": 1, "meals": [new_dinner]}]})
+    meals = out["days"][0]["meals"]
+    assert [m["slot"] for m in meals] == ["breakfast", "lunch", "dinner"] and meals[2]["name"] == "Rajma rice"
+
+
+def test_scale_portions_balances_energy_across_meals():
+    from nip.tools.registry import scale_portions
+
+    skewed = [{"slot": "breakfast", "name": "Big breakfast", "items": [
+                  {"food_code": "IN-B010", "grams": 275}, {"food_code": "IN-L003", "grams": 100},
+                  {"food_code": "IN-A019", "grams": 220}]},
+              {"slot": "lunch", "name": "Tiny lunch", "items": [{"food_code": "IN-A015", "grams": 20},
+                                                              {"food_code": "IN-B021", "grams": 20}]},
+              {"slot": "dinner", "name": "Tiny dinner", "items": [{"food_code": "IN-A013", "grams": 20},
+                                                                {"food_code": "IN-B010", "grams": 20}]}]
+    res = scale_portions(skewed, kcal=2056, protein_g=115, fat_g=64)
+    shares = [k / sum(res["meal_kcal"]) for k in res["meal_kcal"]]
+    assert all(0.2 <= x <= 0.45 for x in shares), shares

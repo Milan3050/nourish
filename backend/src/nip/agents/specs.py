@@ -20,7 +20,7 @@ from nip.data.taxonomy import alias_terms, allergens_for, meats_for
 from nip.domain.models import RiskFlag, UserProfile, Violation
 from nip.security.guard import check_output, wrap_untrusted
 from nip.tools.backend import get_backend
-from nip.tools.foods import get_food_db, is_allowed
+from nip.tools.foods import SLOT_ENERGY_SHARE, get_food_db, is_allowed
 from nip.tools.registry import scale_portions as scale_portions_tool
 
 
@@ -285,7 +285,8 @@ You choose the dishes and ingredients; tools do all the arithmetic.
 3. Call `scale_portions` ONCE with your whole draft plan (all days, all meals). It rescales the grams so
    every day hits the kcal, protein and fat targets. If a day gets advice, change its foods and call again.
 4. Submit the returned days unchanged: submit_result(days=<days from scale_portions>). Vary dishes across days.
-If you are revising a rejected plan, fix every listed violation first."""
+If you are revising a rejected plan, fix every listed violation first. To change part of the user's current
+plan, you may submit only the changed meals: the others are kept."""
 
 
 def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
@@ -379,10 +380,32 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                                "unchanged: " + json.dumps(fixed))
         return errs[:14]
 
+    def prepare(args: dict) -> dict:
+        """Edits of an existing plan: meals the submission leaves out are kept from the current plan, so
+        "swap the dinner" can be submitted as just the new dinner."""
+        current = (ctx.get("plan") or {}).get("days") or []
+        days = args.get("days") if isinstance(args.get("days"), list) else None
+        if not current or not days:
+            return args
+        merged: dict[int, dict] = {}
+        for d in days:  # several entries for one day (one meal each) are folded together
+            if not isinstance(d, dict):
+                return args
+            n = d.get("day", 1)
+            merged.setdefault(n, {"day": n, "meals": []})["meals"] += list(d.get("meals") or [])
+        old = {d["day"]: d for d in current}
+        for n, d in merged.items():
+            have = {m.get("slot") for m in d["meals"] if isinstance(m, dict)}
+            d["meals"] += [m for m in old.get(n, {}).get("meals", []) if m["slot"] not in have]
+        order = list(SLOT_ENERGY_SHARE)
+        for d in merged.values():
+            d["meals"].sort(key=lambda m: order.index(m["slot"]) if m.get("slot") in order else 99)
+        return {**args, "days": [merged[n] for n in sorted(merged)]}
+
     tools = [_tool(search_foods, "search_foods", search_foods.__doc__),
              _tool(scale_portions, "scale_portions", scale_portions.__doc__)]
     return GoalAgent("Meal Planning Agent", PLANNER_GOAL, tools, PlanSubmission, check,
-                     max(s.max_agent_steps, 16), emit)
+                     max(s.max_agent_steps, 16), emit, prepare=prepare)
 
 
 # ==================================================================================================
@@ -464,6 +487,10 @@ RECOMMENDATION_GOAL = """Write the user-facing answer to their request from the 
 # Presenting a plan ("here is your plan", "this 1-day meal plan is designed...") when none was validated.
 CLAIMS_PLAN = re.compile(r"\b(?:here(?:'s| is)|this|your)\s+(?:[\w-]+\s+){0,3}(?:meal\s+)?plan\b"
                          r"(?!\s+(?:could|couldn't|can't|cannot|was not|wasn't|is not|isn't|failed|needs))", re.I)
+# Claiming an edit was made ("your dinner is now...", "paneer has been replaced") when it was not.
+CLAIMS_CHANGE = re.compile(r"\b(?:is now|are now|now (?:has|includes|features)|has been (?:replaced|removed|swapped|"
+                           r"changed|updated|revised|added)|have been (?:replaced|removed|swapped|changed|updated|"
+                           r"added)|(?:i|we)(?:'ve| have)? (?:replaced|swapped|removed|changed|updated|revised))\b", re.I)
 UNIT_NUMBER = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(kcal|calories|g\b|grams|mg\b|µg|mcg)", re.I)
 
 
@@ -516,6 +543,9 @@ def recommendation_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         text = " ".join([sub.headline, sub.summary, *sub.key_points, *sub.tips])
         for why in check_output(text):
             errs.append(f"Not allowed: the text {why}. Rephrase.")
+        if ctx.get("change_failed") and CLAIMS_CHANGE.search(text):
+            errs.append(f"The requested change was NOT made (no revised plan passed validation), but the text "
+                        f"says it was ('{CLAIMS_CHANGE.search(text).group(0)}'). Say the change could not be made.")
         if not ctx.get("plan_shown", True) and CLAIMS_PLAN.search(text):
             errs.append(f"No validated plan is shown to the user, but the text presents one "
                         f"('{CLAIMS_PLAN.search(text).group(0)}'). Do not describe a plan.")

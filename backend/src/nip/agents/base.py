@@ -63,16 +63,19 @@ class AgentResult:
 
 
 Check = Callable[[BaseModel], list[str] | Awaitable[list[str]]]
+Prepare = Callable[[dict], dict]  # deterministic completion of a submission before it is checked
 
 
 class GoalAgent:
     def __init__(self, name: str, goal: str, tools: list[BaseTool], output_model: type[BaseModel],
-                 check: Check | None = None, max_steps: int = 10, emit: Emit | None = None):
+                 check: Check | None = None, max_steps: int = 10, emit: Emit | None = None,
+                 prepare: Prepare | None = None):
         self.name = name
         self.goal = goal
         self.tools = {t.name: t for t in tools}
         self.output_model = output_model
         self.check = check
+        self.prepare = prepare
         self.max_steps = max_steps
         self.emit = emit or (lambda e: None)
         self.submit_tool = StructuredTool.from_function(
@@ -127,6 +130,8 @@ class GoalAgent:
                     continue
                 earlier.add(key)
                 if name == "submit_result":
+                    if self.prepare:
+                        args = self.prepare(args)
                     errors = await self._accept(args)
                     if errors:
                         feedback = errors

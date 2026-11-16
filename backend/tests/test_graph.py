@@ -284,3 +284,13 @@ async def test_foods_excluded_in_the_message_are_enforced_this_turn_only(run):
     planner = [r for r in final["agent_runs"] if r["agent"] == "meal_planning"]
     assert planner and "disliked (paneer)" in planner[0]["error"]
     assert "paneer" not in final["profile"]["dislikes"]  # not saved as a lasting preference
+
+
+async def test_failed_change_is_reported_honestly(run):
+    w = veg_world()
+    final, _, g = await run(w, "1-day plan please", thread="chg", profile=VEG_PROFILE)
+    assert final["recommendation"]["plan"]
+    w.supervisor_script = ["meal_planning", "recommendation"]
+    final2, _, _ = await run(w, "Swap the breakfast for something without paneer", thread="chg", graph=g)
+    assert final2["turn_exclusions"] == ["paneer"] and len(final2["plans"]) == 1  # no new plan passed
+    assert final2["status"] == "answered"
