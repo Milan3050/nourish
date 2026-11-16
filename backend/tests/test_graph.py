@@ -302,3 +302,17 @@ async def test_requested_plan_is_attempted_before_answering(run):
     final, _, _ = await run(w, "Plan a day of meals for me", profile=VEG_PROFILE)
     assert final["plan_requested"] and final["recommendation"]["plan"]
     assert final["decisions"][1]["override"] == "the user asked for a plan and none has been made this turn"
+
+
+async def test_failed_recommendation_falls_back_to_validated_context(run):
+    class Mute(World):
+        def recommendation(self, messages):
+            return call("submit_result", headline="Here is your plan", summary="This meal plan is great.")
+
+    w = Mute({**VEG_PROFILE, "conditions": ["ckd"]}, "IN-L003", "IN-A015", [])
+    w.supervisor_script = ["health_assessment", "recommendation"]
+    final, _, _ = await run(w, "high protein plan please", profile=w.profile_fields)
+    rec = final["recommendation"]
+    assert final["status"] == "answered" and rec["headline"].startswith("Please plan this with your doctor")
+    assert "Kidney disease" in rec["summary"]
+    assert [r["status"] for r in final["agent_runs"] if r["agent"] == "recommendation"] == ["failed"]

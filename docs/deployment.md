@@ -24,10 +24,14 @@
 - **API pods** are stateless: conversation state lives in the Postgres checkpointer, so any pod can resume
   any thread. Streams are long-lived, so autoscaling uses in-flight streams as well as CPU.
 - **MCP tool pods** run on the private network only, with service-to-service auth (mTLS or signed tokens).
+  DNS-rebinding protection stays on with an explicit Host allow-list (`NIP_MCP_ALLOWED_HOSTS`): the MCP SDK
+  only enables it for loopback binds by default, so a pod bound to 0.0.0.0 would otherwise accept any Host.
   The food tables and rules ship inside the image, versioned with the code.
 - **LLM gateway** (LiteLLM or similar): per-environment model routing (small model for the supervisor, larger
   for planning), automatic fallback to a second provider, per-user and per-tenant token budgets, response caching
-  for retrieval-only questions.
+  for retrieval-only questions. Self-hosted models (vLLM, Ollama) are configured with an explicit context
+  window large enough for agent transcripts (32k here); a server default of 8k silently truncated 12% of
+  calls in the first real runs.
 - **Postgres**: managed, multi-AZ, point-in-time recovery, encryption at rest with KMS, read replica for
   analytics. Row-level security on profiles. Partition checkpoints by month and expire them by retention policy.
 - **Temporal** handles work that outlives a request: regenerating weekly plans, re-validating stored plans when
@@ -42,6 +46,8 @@
   configurable retention, export and delete on request (GDPR / DPDP Act 2023 in India), audit log of profile access.
   For US PHI, use HIPAA-eligible model endpoints under a BAA.
 - WAF and rate limits at the edge and per user in the API (Redis-backed in prod).
+- Telemetry: the OTLP collector requires auth in every shared environment. (The local Phoenix in
+  docker-compose has auth off and binds to 127.0.0.1 only.)
 - Supply chain: pinned lockfiles, dependency and image scanning, non-root containers, read-only filesystems.
 
 ## Release process

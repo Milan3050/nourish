@@ -28,7 +28,7 @@ shape the design:
  Browser (Vite + React)                 API service (FastAPI)                    Tool service (MCP)
  ┌──────────────────────┐  POST+SSE   ┌──────────────────────────────────┐ MCP  ┌─────────────────────┐
  │ chat · live agent    │────────────▶│ auth · rate limit · input guard  │─────▶│ search_foods        │
- │ graph · plan · rings │◀────────────│ LangGraph orchestration          │◀─────│ compute_nutrition   │
+ │ graph · plan · rings │◀────────────│ LangGraph orchestration          │◀─────│ scale_portions      │
  └──────────────────────┘  events     │  supervisor + 5 goal agents      │      │ assess_energy       │
                                       │ checkpoints (Postgres)           │      │ check_plan (rules)  │
                                       └───────┬─────────────┬────────────┘      │ search_guidelines   │
@@ -39,8 +39,8 @@ shape the design:
 ```
 
 Every model call goes through one OpenAI-compatible client. Development runs fully local on Ollama
-(`qwen2.5:7b-instruct`, `nomic-embed-text`); a single environment variable switches to OpenAI, Groq,
-Gemini or a vLLM cluster.
+(`qwen2.5:7b-instruct` with a 32k context window, `nomic-embed-text`); a single environment variable
+switches to OpenAI, Groq, Gemini or a vLLM cluster.
 
 ## 3. Orchestration (LangGraph)
 
@@ -57,16 +57,21 @@ intake ─▶ supervisor ─┬─▶ health_assessment ───┐
 patterns, eating-disorder and crisis signals, and medical-scope requests (diagnosis, medication changes).
 Crisis messages get a fixed support response with helplines and never reach an agent.
 
-**Supervisor.** An LLM call with a structured `Decision {objectives, next, instruction, reason}`, given a
-compact summary of the state (which outputs exist, what failed, budgets used). Its proposal then passes
-through `enforce()`, which applies these invariants:
+**Supervisor.** An LLM call with a structured `Decision {objectives, next, instruction, reason}` (JSON-schema
+constrained decoding, which also works on Ollama), given a compact summary of the state: which outputs
+exist, what is missing for the energy calculation, escalation triggers, whether this turn's evidence is
+sufficient, budgets used. Its proposal then passes through `enforce()`. Overrides are re-checked until
+the choice is stable, so one rule cannot route around another:
 
 | Invariant | Effect |
 |---|---|
 | A plan needs a health profile | meal_planning → health_assessment |
-| Escalation (minor, pregnancy, kidney disease, type 1 diabetes, eating-disorder risk) | planner blocked; safe-mode answer |
+| Escalation triggers in the profile (minor, pregnancy, kidney disease, type 1 diabetes) | screened by health assessment before any answer |
+| Escalation (the above, eating-disorder risk, weight loss while underweight) | planner blocked; safe-mode answer |
 | Unvalidated plans are never shown | recommendation → validation |
-| Rejected plans are revised, at most N times | recommendation → meal_planning, then give up honestly |
+| Rejected plans are revised, at most 3 times | recommendation → meal_planning, then give up honestly |
+| A requested plan is attempted before answering | recommendation → meal_planning (intent detected in code) |
+| No redundant work | no re-planning after PASS; no knowledge search when this turn's evidence is sufficient; clarify only for missing essentials |
 | Step and token budgets per request | forced answer with what is available |
 | No repeated loops | an agent can't run more than twice in one turn |
 
@@ -78,18 +83,31 @@ picks the next missing piece, so a bad model response never stalls a request.
 with tools and a `submit_result` tool whose schema is the agent's output model. Submissions are
 validated against the schema and against acceptance checks specific to the agent; failures go back to the
 agent as feedback and it keeps working within a step budget. This is what makes the agents goal-driven
-rather than prompt chains: "done" means the goal's acceptance criteria hold.
+rather than prompt chains: "done" means the goal's acceptance criteria hold. An optional deterministic
+`prepare` step completes a submission before it is checked (the planner's merges an edit such as "swap
+the dinner" into the current plan and renames a dish whose name mentions food it does not contain).
+Repeated identical tool calls get a "use the result you have" note, and a failed run passes its last
+rejection to the next attempt.
 
 | Agent | Goal | Tools | Accepted only when |
 |---|---|---|---|
-| Health Assessment | An accurate, safe health profile | `update_profile`, `assess_energy`, `search_guidelines` | energy was computed by the tool, or questions are listed for missing essentials |
+| Health Assessment | An accurate, safe health profile | `update_profile` (converts lb, ft/in), `assess_energy`, `search_guidelines` | energy was computed by the tool, or questions are listed for missing essentials; a body number or sex the user never stated is rejected by the tool |
 | Nutrition Knowledge (agentic RAG) | Answer evidence questions from vetted sources | `search_guidelines` (rewrites, splits, retries) | every cited chunk was actually retrieved in this run; uncited answers are marked insufficient |
-| Meal Planning | A plan that meets targets and constraints | `search_foods`, `compute_nutrition` | every food code exists and is allowed for this person; kcal and protein within ±10% each day |
+| Meal Planning | A plan that meets targets and constraints | `search_foods` (batch), `scale_portions` | every food code exists and is allowed; unique days with a full set of meals; dish names match ingredients; kcal and protein within ±10% each day |
 | Validation | Decide if the plan is safe to show | `run_safety_rules`, `search_guidelines` | the rule engine ran; the verdict is never more lenient than the rules |
 | Recommendation | A personal, cited, grounded answer | `search_guidelines` | citations exist, every number with a unit appears in the context, no banned claims |
 
 Tools close over the run's context, so the model cannot search another region's food table or check a
 plan against someone else's allergies. The planner's search only returns foods the person can eat.
+**The model chooses foods and dishes; `scale_portions` computes the grams**: the portions closest to
+the planner's (relative change) that meet kcal and protein exactly, and fat and each meal's share of the
+day's energy when the mix allows, solved in closed form (Lagrange) with portions bounded to 0.3-3x of the
+planner's and 5-500 g. When a submission fails only on targets, the acceptance check returns the
+rescaled days as feedback; the agent still submits, and the ±10% check is never relaxed.
+
+**Request constraints are code, not prompts.** Intake extracts foods the message rules out ("without
+paneer") when they name a food in the user's table; they become this turn's dislikes for search, the
+planner's check and the rule engine. It also records whether a plan was requested.
 
 **State.** A typed `NIPState` holds the durable context (profile, health assessment, evidence, plan
 versions, validation reports) and per-turn orchestration (objectives, budgets, decisions, agent runs).
@@ -135,7 +153,9 @@ filtered to the user's region plus global documents. Retrieved text is wrapped a
   content, user text fenced as `<user_message>` data.
 - Indirect injection from documents: vetted corpus only, tag stripping, `<untrusted_document>` fencing.
 - Hallucinated numbers: numbers come only from tools; the Recommendation agent's acceptance check rejects any
-  unit-bearing number that isn't in the context.
+  unit-bearing number that isn't in the context. Profile facts the user never stated are rejected by the tool.
+- Dishonest answers: the acceptance check rejects text that presents a plan when none passed validation, or
+  claims a requested change was made when it was not.
 - Hallucinated citations: citations are resolved from retrieved chunk ids, never from model text.
 - Scope: output filter blocks medication-change advice, cure claims, guarantees and diagnoses; a disclaimer is
   added in code.
@@ -157,6 +177,8 @@ UI shows every agent hand-off, tool call, rejected submission, override and verd
 | MCP tool server | One versioned tool contract for these agents and any other MCP client; separately deployable | Direct imports (kept as `inprocess` transport for tests) |
 | Postgres for vectors, text search, checkpoints, profiles | One datastore to secure, back up and scale | Qdrant + Redis: more moving parts at this scale |
 | OpenAI-compatible client | Local Ollama in development, any hosted model in production, no code change | Provider SDKs |
+| JSON-schema structured output for the router | Ollama ignores a forced `tool_choice`, so function-calling returned empty decisions | Function calling (kept as an option) |
+| Deterministic solver for portions | A 7B model cannot hit ±10% by nudging grams; the solver is exact and explainable | Looser checks (rejected: unsafe) |
 | Temporal (design, not MVP) | Durable long-running jobs (weekly re-planning, bulk re-evaluation) | Not needed for request/response turns |
 | Vite SPA | All logic lives in the Python service; no server rendering needed | Next.js would add a second server |
 

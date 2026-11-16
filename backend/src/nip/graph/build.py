@@ -331,11 +331,9 @@ async def recommendation(state: NIPState) -> dict:
         rec = Recommendation(headline=o.headline, summary=o.summary, key_points=o.key_points, tips=o.tips,
                              citations=cits, follow_up_questions=o.follow_up_questions)
         status = "answered"
-    else:
-        rec = Recommendation(headline="I couldn't finish this one",
-                             summary="Something went wrong while preparing your answer. Please try again, "
-                                     "or rephrase your request.")
-        status = "failed"
+    else:  # the agent could not produce an accepted answer: compose one from validated context only
+        rec = fallback_answer(h, showable, ctx["evidence"], planner_ran, bool(state.get("plan_requested")))
+        status = "answered"
     if h and h.get("escalation_required"):
         rec.key_points = ["Because of your health situation, please review any diet change with a doctor "
                           "or registered dietitian.", *rec.key_points]
@@ -345,6 +343,38 @@ async def recommendation(state: NIPState) -> dict:
             "history": [{"role": "assistant", "content": rec.summary, "turn": state.get("turn")}]}
     emit({"type": "answer", "status": status, "ts": time.time()})
     return upd
+
+
+def fallback_answer(health: dict | None, plan: dict | None, evidence: list[dict], planner_ran: bool,
+                    plan_requested: bool) -> Recommendation:
+    """Deterministic answer used when the Recommendation agent fails its checks within its budget.
+
+    Built only from validated state (risk flags, the validated plan's computed totals, cited evidence),
+    so it carries no model-written claims."""
+    cites = [Citation(**c) for e in evidence if e.get("sufficient") for c in e["citations"]]
+    answers = [e["answer"] for e in evidence if e.get("sufficient")]
+    if health and health.get("escalation_required"):
+        why = "; ".join(f["message"] for f in health.get("risk_flags", []) if f["severity"] == "critical")
+        return Recommendation(
+            headline="Please plan this with your doctor or a registered dietitian",
+            summary=f"I can't give you a personalised plan safely: {why or 'your health situation needs clinical input'}. "
+                    + " ".join(answers[:2]),
+            citations=cites[:4])
+    if plan:
+        days = []
+        for d in plan["days"]:
+            t = d.get("totals") or {}
+            dishes = ", ".join(f"{m['slot'].replace('_', ' ')}: {m['name']}" for m in d["meals"])
+            days.append(f"Day {d['day']} ({t.get('kcal', 0):.0f} kcal, {t.get('protein_g', 0):.0f} g protein): {dishes}.")
+        return Recommendation(headline="Your validated meal plan", summary=" ".join(days), citations=cites[:4])
+    if answers:
+        return Recommendation(headline="What the guidelines say", summary=" ".join(answers[:3]), citations=cites[:4])
+    if planner_ran or plan_requested:
+        return Recommendation(headline="I couldn't build a safe plan this time",
+                              summary="None of the plans I built passed the safety and target checks. Please try "
+                                      "again, or ask for a simpler plan (for example one day, three meals).")
+    return Recommendation(headline="I couldn't finish this one",
+                          summary="I couldn't prepare a reliable answer this time. Please try again or rephrase.")
 
 
 async def clarify(state: NIPState) -> dict:

@@ -15,23 +15,30 @@ Requirements: Docker, [uv](https://docs.astral.sh/uv/), Node 20+, [Ollama](https
 
 ```bash
 make ollama-models  # qwen2.5:7b-instruct + nomic-embed-text, and a 32k-context variant of qwen
-make setup        # Python + Node dependencies, creates .env from .env.example
-make infra        # Postgres (pgvector) + Phoenix tracing UI in Docker
-make index        # embed the guideline corpus into pgvector
-make dev          # MCP tool server :8765, API :8000, web app :5173
+make setup          # Python + Node dependencies, creates .env from .env.example
+make infra          # Postgres (pgvector) + Phoenix tracing UI in Docker
+make index          # embed the guideline corpus into pgvector
+make dev            # MCP tool server :8765, API :8000, web app :5173
 ```
 
-Open http://localhost:5173. Traces are at http://localhost:6006.
+Open http://localhost:5173. Traces are at http://localhost:6006 (project `nip-api`).
+If port 8000 is taken, `make dev API_PORT=8010` (the web dev proxy follows it).
+
+Why the 32k variant: many Ollama installs default to a 2-8k context (`OLLAMA_CONTEXT_LENGTH`) and silently
+drop the start of long agent transcripts, which is where the system prompt and goal are.
 
 To use a hosted model instead of Ollama, edit the `NIP_LLM_*` lines in `.env` (OpenAI, Groq and Gemini
 examples are included). Embeddings can stay on Ollama.
 
-Run everything in containers instead: `make docker` (web app on http://localhost:8080).
+Run everything in containers instead: `make docker` (web app on http://localhost:8080). The API and MCP
+containers reach Ollama on the host through `host.docker.internal`, so Ollama must listen on the Docker
+bridge, not only on 127.0.0.1 (on Linux: `OLLAMA_HOST=0.0.0.0:11434` in the Ollama service, then restart
+it). Set `NIP_API_HOST_PORT` if 8000 is taken on the host.
 
 ## Tests and evaluation
 
 ```bash
-make test           # 41 deterministic tests: tools, rules, retrieval, MCP, API, orchestration. No LLM needed.
+make test           # 63 deterministic tests: tools, rules, retrieval, MCP, API, orchestration. No LLM needed.
 make eval-offline   # retrieval metrics: Recall@K, Precision@K, MRR, nDCG for dense / sparse / hybrid
 make eval           # agent scenarios + red team against the configured LLM
 cd backend && uv run python -m nip.eval.run --suite agents --judge   # + faithfulness, groundedness, relevance
