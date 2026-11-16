@@ -506,7 +506,12 @@ class RecommendationSubmission(BaseModel):
 
 
 RECOMMENDATION_GOAL = """Write the user-facing answer to their request from the context you are given.
-- Personalise it to their profile and goal. Explain the why briefly, cite evidence by chunk_id.
+- Answer the user's actual question first, directly. If a validated plan is shown, the summary names the
+  day's dishes and its kcal and protein totals from the plan, and says how they fit the user's goal.
+- Personalise it to their profile and goal. Explain the why briefly, cite evidence by chunk_id
+  (chunk_id values come from the evidence or search results, never food codes).
+- Only say what the context supports. No generic filler (hydration, sleep, "consult regularly") unless
+  the evidence says it.
 - Every number you mention (kcal, grams, mg) must appear in the context; do not compute new numbers.
 - If the plan was escalated or a safety flag is set, lead with that: give general guidance only and advise
   seeing a doctor or registered dietitian. Never tell the user to change medication, never diagnose.
