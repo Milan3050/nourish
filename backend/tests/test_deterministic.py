@@ -280,3 +280,11 @@ def test_scale_portions_balances_energy_across_meals():
     res = scale_portions(skewed, kcal=2056, protein_g=115, fat_g=64)
     shares = [k / sum(res["meal_kcal"]) for k in res["meal_kcal"]]
     assert all(0.2 <= x <= 0.45 for x in shares), shares
+
+
+def test_dish_names_must_match_ingredients():
+    from nip.tools.foods import names_missing_foods
+
+    assert names_missing_foods("Stir-fry with paneer and brown rice", ["Ground nut", "Ladies finger"], "IN") == \
+        ["paneer", "rice"]
+    assert names_missing_foods("Moong dal with roti", ["Green gram, dal", "Wheat flour, atta"], "IN") == []

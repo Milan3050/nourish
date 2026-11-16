@@ -327,3 +327,20 @@ def request_exclusions(db: FoodDB, text: str, region: str | None) -> list[str]:
                     out.append(cand)
                     break
     return sorted(set(out))
+
+
+@lru_cache
+def _head_phrases(region: str) -> list[frozenset[str]]:
+    """Distinct head names in a region's table ('Green gram', 'Paneer', 'Rice'), as token sets."""
+    db = get_food_db()
+    heads = {frozenset(_tokens(f.name.split(",")[0])) for f in db.foods if f.region == region}
+    return [h for h in heads if h and len(h) <= 3]
+
+
+def names_missing_foods(dish: str, item_names: list[str], region: str) -> list[str]:
+    """Foods a dish name mentions that none of its ingredients are ('Paneer curry' made of groundnut)."""
+    dish_toks = set(_tokens(expand_food_query(dish, region)))
+    item_toks = [set(_tokens(n)) for n in item_names]
+    missing = [h for h in _head_phrases(region) if h <= dish_toks and not any(h <= t for t in item_toks)]
+    # report the most specific phrases only ("green gram", not also "gram")
+    return sorted({" ".join(sorted(h)) for h in missing if not any(h < o for o in missing)})

@@ -20,7 +20,7 @@ from nip.data.taxonomy import alias_terms, allergens_for, meats_for
 from nip.domain.models import RiskFlag, UserProfile, Violation
 from nip.security.guard import check_output, wrap_untrusted
 from nip.tools.backend import get_backend
-from nip.tools.foods import SLOT_ENERGY_SHARE, get_food_db, is_allowed
+from nip.tools.foods import SLOT_ENERGY_SHARE, get_food_db, is_allowed, names_missing_foods
 from nip.tools.registry import scale_portions as scale_portions_tool
 
 
@@ -351,6 +351,11 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                 named = allergens_for(m.name) & blocked
                 if named or (profile.diet_pattern != "omnivore" and meats_for(m.name)):
                     errs.append(f"day {d.day} {m.slot}: dish name '{m.name}' names a food this user does not eat")
+                foods_in = [f.name for it in m.items if (f := db.get(it.food_code))]
+                absent = names_missing_foods(m.name, foods_in, profile.region.value)
+                if absent:
+                    errs.append(f"day {d.day} {m.slot}: dish name '{m.name}' mentions {absent} but the ingredients "
+                                "do not include it; rename the dish to match its ingredients or add the food")
                 for it in m.items:
                     f = db.get(it.food_code)
                     if f is None:
