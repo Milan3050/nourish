@@ -414,7 +414,7 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         args = _honest_dish_names(args, ctx["profile"])
         current = (ctx.get("plan") or {}).get("days") or []
         days = args.get("days") if isinstance(args.get("days"), list) else None
-        if not current or not days:
+        if not days:
             return args
         merged: dict[int, dict] = {}
         for d in days:  # several entries for one day (one meal each) are folded together
@@ -525,6 +525,7 @@ CLAIMS_PLAN = re.compile(r"\b(?:here(?:'s| is)|this|your)\s+(?:[\w-]+\s+){0,3}(?
 CLAIMS_CHANGE = re.compile(r"\b(?:is now|are now|now (?:has|includes|features)|has been (?:replaced|removed|swapped|"
                            r"changed|updated|revised|added)|have been (?:replaced|removed|swapped|changed|updated|"
                            r"added)|(?:i|we)(?:'ve| have)? (?:replaced|swapped|removed|changed|updated|revised))\b", re.I)
+FOOD_CODE = re.compile(r"^(?:IN|US)-[A-Z0-9]+$")
 UNIT_NUMBER = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(kcal|calories|g\b|grams|mg\b|µg|mcg)", re.I)
 
 
@@ -567,6 +568,14 @@ def recommendation_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         """Search vetted guidelines for a citation."""
         return await _guideline_search(be, ctx, query, 3)
 
+    def prepare(args: dict) -> dict:
+        """Food codes listed as citations are a format mix-up, not sources: drop them. Any other unknown
+        id is still rejected by the check (citations must come from retrieved passages)."""
+        ids = args.get("cited_chunk_ids")
+        if isinstance(ids, list):
+            args = {**args, "cited_chunk_ids": [c for c in ids if not FOOD_CODE.match(str(c))]}
+        return args
+
     def check(sub: RecommendationSubmission) -> list[str]:
         errs = []
         allowed = set(ctx.get("retrieved", {})) | {c["chunk_id"] for e in ctx.get("evidence", [])
@@ -590,4 +599,4 @@ def recommendation_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
 
     return GoalAgent("Recommendation Agent", RECOMMENDATION_GOAL,
                      [_tool(search_guidelines, "search_guidelines", search_guidelines.__doc__)],
-                     RecommendationSubmission, check, get_settings().max_agent_steps, emit)
+                     RecommendationSubmission, check, get_settings().max_agent_steps, emit, prepare=prepare)

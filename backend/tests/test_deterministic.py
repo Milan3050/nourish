@@ -300,3 +300,14 @@ def test_misleading_dish_names_are_renamed_from_ingredients():
          "items": [{"food_code": "IN-B010", "grams": 80}, {"food_code": "IN-A019", "grams": 100}]}]}]}
     meals = _honest_dish_names(args, {"region": "IN"})["days"][0]["meals"]
     assert meals[0]["name"] == "Wheat flour with ground nut" and meals[1]["name"] == "Moong dal with roti"
+
+
+def test_planner_folds_one_meal_days_into_one_day():
+    from nip.agents.specs import planner_agent
+
+    profile = base_profile(diet_pattern=DietPattern.vegetarian)
+    agent = planner_agent({"profile": profile.model_dump(mode="json"), "health": assess(profile).model_dump()})
+    meal = lambda slot: {"slot": slot, "name": "Dal", "items": [{"food_code": "IN-B010", "grams": 100}]}  # noqa: E731
+    out = agent.prepare({"days": [{"day": 1, "meals": [meal("dinner")]}, {"day": 1, "meals": [meal("breakfast")]},
+                                  {"day": 1, "meals": [meal("lunch")]}]})
+    assert len(out["days"]) == 1 and [m["slot"] for m in out["days"][0]["meals"]] == ["breakfast", "lunch", "dinner"]
