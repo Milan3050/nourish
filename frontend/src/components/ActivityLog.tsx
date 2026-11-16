@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useEffect, useRef } from 'react'
 import { AGENT_BY_NAME, AGENT_LABEL, type AgentEvent, type AgentKey } from '../lib/types'
 
@@ -31,12 +31,13 @@ const TONE = { warn: 'text-turmeric', good: 'text-leaf', bad: 'text-chilli' }
 
 export function ActivityLog({ events }: { events: AgentEvent[] }) {
   const ref = useRef<HTMLOListElement>(null)
+  const reduce = useReducedMotion()
   const lines = events.map((e, i) => ({ i, l: line(e) })).filter(x => x.l)
-  useEffect(() => { ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: 'smooth' }) }, [lines.length])
+  useEffect(() => { ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: reduce ? 'auto' : 'smooth' }) }, [lines.length, reduce])
   if (!lines.length)
     return <p className="text-sm text-dim px-1">Each step the agents take shows up here while they work.</p>
   return (
-    <ol ref={ref} className="scroll-thin overflow-y-auto max-h-full space-y-1.5 pr-1 text-[13px] leading-snug" aria-live="polite">
+    <ol ref={ref} className="scroll-thin overflow-y-auto max-h-full space-y-1.5 pr-1 text-[13px] leading-snug" aria-label="Agent activity">
       <AnimatePresence initial={false}>
         {lines.map(({ i, l }) => (
           <motion.li key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}

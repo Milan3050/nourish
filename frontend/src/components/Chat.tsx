@@ -62,23 +62,25 @@ function Assistant({ m, onAsk, isLast }: { m: ChatMessage; onAsk: (q: string) =>
   )
 }
 
-export function Chat({ messages, busy, onSend, region, name }: {
+export function Chat({ messages, busy, onSend, region, name, onShowWork }: {
   messages: ChatMessage[]; busy: boolean; onSend: (t: string) => void; region: Region; name: string
+  onShowWork?: () => void
 }) {
   const [text, setText] = useState('')
   const end = useRef<HTMLDivElement>(null)
-  useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [messages.length, busy])
+  const reduce = useReducedMotion()
+  useEffect(() => { end.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'end' }) }, [messages.length, busy, reduce])
   const submit = (t = text) => { if (t.trim() && !busy) { onSend(t.trim()); setText('') } }
 
   return (
     <section className="flex flex-col h-full min-h-0" aria-label="Conversation">
-      <div className="flex-1 overflow-y-auto scroll-thin px-6 pt-6 pb-4 space-y-6">
+      <div className="flex-1 overflow-y-auto scroll-thin px-4 sm:px-6 pt-5 sm:pt-6 pb-4 space-y-6">
         {messages.length === 0 && (
           <div className="pt-6">
-            <h2 className="font-display text-3xl font-semibold leading-tight m-0 max-w-md">
+            <h2 className="font-display text-2xl sm:text-3xl font-semibold leading-tight m-0 max-w-md">
               What are you working towards, {name}?
             </h2>
-            <p className="text-mist mt-3 max-w-md">Ask for a meal plan, a swap, or whether something is right for you. You'll see each specialist pick up the work on the right.</p>
+            <p className="text-mist mt-3 max-w-md">Ask for a meal plan, a swap, or whether something is right for you. You'll see each specialist pick up the work <span className="lg:hidden">under Agents &amp; plan</span><span className="hidden lg:inline">on the right</span>.</p>
             <div className="mt-6 flex flex-col items-start gap-2">
               {SUGGESTIONS[region].map(s => (
                 <button key={s} onClick={() => submit(s)}
@@ -87,6 +89,7 @@ export function Chat({ messages, busy, onSend, region, name }: {
             </div>
           </div>
         )}
+        <div role="log" aria-label="Messages" aria-live="polite" className="space-y-6">
         <AnimatePresence initial={false}>
           {messages.map((m, i) => (
             <motion.div key={m.id} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
@@ -98,19 +101,23 @@ export function Chat({ messages, busy, onSend, region, name }: {
             </motion.div>
           ))}
         </AnimatePresence>
+        </div>
         {busy && (
-          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-sm text-mist">
-            <Loader2 size={14} className="animate-spin" /> The agents are working on it
+          <motion.p role="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-wrap items-center gap-2 text-sm text-mist">
+            <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden /> The agents are working on it
+            {onShowWork && (
+              <button type="button" onClick={onShowWork} className="lg:hidden text-turmeric underline underline-offset-2">Watch the agents</button>
+            )}
           </motion.p>
         )}
         <div ref={end} />
       </div>
-      <form className="p-4 pt-2" onSubmit={e => { e.preventDefault(); submit() }}>
+      <form className="p-3 sm:p-4 pt-2" onSubmit={e => { e.preventDefault(); submit() }}>
         <div className="flex items-end gap-2 rounded-3xl border border-line bg-plum focus-within:border-turmeric/70 transition-colors p-2 pl-4">
           <label htmlFor="msg" className="sr-only">Message</label>
           <textarea id="msg" rows={1} value={text} onChange={e => setText(e.target.value)} maxLength={4000}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-            placeholder="Ask about meals, swaps or a nutrition question"
+            placeholder="Ask about meals, swaps or nutrition"
             className="flex-1 resize-none bg-transparent outline-none py-2 text-[15px] placeholder:text-dim max-h-40" />
           <motion.button whileTap={{ scale: 0.9 }} type="submit" disabled={busy || !text.trim()} aria-label="Send"
             className="size-10 rounded-full grid place-items-center bg-turmeric text-night disabled:opacity-30 transition-opacity">

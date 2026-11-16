@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { X } from 'lucide-react'
 import type { Profile } from '../lib/types'
@@ -18,6 +18,7 @@ function Chip({ on, children, onClick }: { on: boolean; children: ReactNode; onC
   )
 }
 
+/** One labelled input. */
 function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
     <label className="block">
@@ -28,10 +29,22 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
   )
 }
 
+/** A group of controls (chips, tag lists). A <label> must not wrap these: buttons are labelable, so
+ * clicking the label text would press the first chip, or remove the first allergy in a tag list. */
+function Group({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+  return (
+    <fieldset className="block border-0 p-0 m-0 min-w-0">
+      <legend className="block text-sm text-mist mb-1.5 p-0">{label}</legend>
+      {children}
+      {hint && <p className="text-xs text-dim mt-1 mb-0">{hint}</p>}
+    </fieldset>
+  )
+}
+
 const input = 'w-full rounded-xl bg-plum border border-line px-3.5 py-2.5 text-[15px] outline-none focus:border-turmeric'
 
-function Tags({ values, onChange, suggestions, placeholder }: {
-  values: string[]; onChange: (v: string[]) => void; suggestions: string[]; placeholder: string
+function Tags({ label, values, onChange, suggestions, placeholder }: {
+  label: string; values: string[]; onChange: (v: string[]) => void; suggestions: string[]; placeholder: string
 }) {
   const [t, setT] = useState('')
   const add = (v: string) => { const s = v.trim().toLowerCase(); if (s && !values.includes(s)) onChange([...values, s]); setT('') }
@@ -49,11 +62,11 @@ function Tags({ values, onChange, suggestions, placeholder }: {
           ))}
         </AnimatePresence>
       </div>
-      <input className={input} value={t} placeholder={placeholder} onChange={e => setT(e.target.value)}
+      <input className={input} value={t} placeholder={placeholder} aria-label={`Add ${label.toLowerCase()}`} onChange={e => setT(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(t) } }} />
       <div className="flex flex-wrap gap-1.5">
         {suggestions.filter(s => !values.includes(s)).map(s => (
-          <button type="button" key={s} onClick={() => add(s)} className="text-xs text-mist rounded-full border border-dashed border-line px-2.5 py-1 hover:text-cream">+ {s}</button>
+          <button type="button" key={s} onClick={() => add(s)} aria-label={`Add ${s}`} className="text-xs text-mist rounded-full border border-dashed border-line px-2.5 py-1 hover:text-cream">+ {s}</button>
         ))}
       </div>
     </div>
@@ -76,10 +89,12 @@ export function Onboarding({ initial, onDone }: { initial: Profile; onDone: (p: 
       ok: !!(p.age && p.sex && p.height_cm && p.weight_kg),
       body: (
         <div className="space-y-5">
-          <div className="flex gap-2">
-            <Chip on={p.sex === 'female'} onClick={() => set('sex', 'female')}>Female</Chip>
-            <Chip on={p.sex === 'male'} onClick={() => set('sex', 'male')}>Male</Chip>
-          </div>
+          <Group label="Sex (used in the energy equation)">
+            <div className="flex gap-2">
+              <Chip on={p.sex === 'female'} onClick={() => set('sex', 'female')}>Female</Chip>
+              <Chip on={p.sex === 'male'} onClick={() => set('sex', 'male')}>Male</Chip>
+            </div>
+          </Group>
           <div className="grid grid-cols-3 gap-3">
             <Field label="Age"><input className={input} inputMode="numeric" value={p.age ?? ''} onChange={e => set('age', num(e.target.value))} /></Field>
             <Field label={imperial ? 'Height (in)' : 'Height (cm)'}>
@@ -110,13 +125,13 @@ export function Onboarding({ initial, onDone }: { initial: Profile; onDone: (p: 
               <Chip key={v} on={p.goal === v} onClick={() => set('goal', v)}>{l}</Chip>
             ))}
           </div>
-          <Field label="How active are you?">
+          <Group label="How active are you?">
             <div className="flex flex-wrap gap-2">
               {([['sedentary', 'Mostly sitting'], ['light', '1-3 workouts a week'], ['moderate', '3-5 a week'], ['active', '6-7 a week'], ['very_active', 'Physical job or athlete']] as const).map(([v, l]) => (
                 <Chip key={v} on={p.activity === v} onClick={() => set('activity', v)}>{l}</Chip>
               ))}
             </div>
-          </Field>
+          </Group>
           {p.goal === 'lose_weight' && (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Target weight (kg)" hint="Optional"><input className={input} inputMode="decimal" value={p.target_weight_kg ?? ''} onChange={e => set('target_weight_kg', num(e.target.value))} /></Field>
@@ -131,30 +146,30 @@ export function Onboarding({ initial, onDone }: { initial: Profile; onDone: (p: 
       ok: true,
       body: (
         <div className="space-y-6">
-          <Field label="Where do you shop and cook?" hint="Picks the food table: Indian Food Composition Tables or USDA.">
+          <Group label="Where do you shop and cook?" hint="Picks the food table: Indian Food Composition Tables or USDA.">
             <div className="flex gap-2">
               <Chip on={p.region === 'IN'} onClick={() => set('region', 'IN')}>India</Chip>
               <Chip on={p.region === 'US'} onClick={() => set('region', 'US')}>United States</Chip>
             </div>
-          </Field>
-          <Field label="Diet">
+          </Group>
+          <Group label="Diet">
             <div className="flex flex-wrap gap-2">
               {([['vegetarian', 'Vegetarian'], ['eggetarian', 'Eggetarian'], ['vegan', 'Vegan'], ['jain', 'Jain'], ['pescatarian', 'Pescatarian'], ['omnivore', 'Eat everything']] as const).map(([v, l]) => (
                 <Chip key={v} on={p.diet_pattern === v} onClick={() => set('diet_pattern', v)}>{l}</Chip>
               ))}
             </div>
-          </Field>
-          <Field label="Religious or cultural rules">
+          </Group>
+          <Group label="Religious or cultural rules">
             <div className="flex flex-wrap gap-2">
               {([['halal', 'Halal'], ['kosher', 'Kosher'], ['no_beef', 'No beef'], ['no_pork', 'No pork']] as const).map(([v, l]) => (
                 <Chip key={v} on={p.religious_rules.includes(v)}
                   onClick={() => set('religious_rules', p.religious_rules.includes(v) ? p.religious_rules.filter(x => x !== v) : [...p.religious_rules, v])}>{l}</Chip>
               ))}
             </div>
-          </Field>
-          <Field label="Meals a day">
+          </Group>
+          <Group label="Meals a day">
             <div className="flex gap-2">{[2, 3, 4, 5].map(n => <Chip key={n} on={p.meals_per_day === n} onClick={() => set('meals_per_day', n)}>{n}</Chip>)}</div>
-          </Field>
+          </Group>
         </div>
       ),
     },
@@ -163,29 +178,34 @@ export function Onboarding({ initial, onDone }: { initial: Profile; onDone: (p: 
       ok: true,
       body: (
         <div className="space-y-6">
-          <Field label="Allergies and intolerances">
-            <Tags values={p.allergies} onChange={v => set('allergies', v)} placeholder="Type and press Enter"
+          <Group label="Allergies and intolerances">
+            <Tags label="Allergies" values={p.allergies} onChange={v => set('allergies', v)} placeholder="Type and press Enter"
               suggestions={['peanut', 'tree nuts', 'dairy', 'gluten', 'egg', 'soy', 'shellfish', 'sesame']} />
-          </Field>
-          <Field label="Health conditions">
-            <Tags values={p.conditions} onChange={v => set('conditions', v)} placeholder="For example: type 2 diabetes"
+          </Group>
+          <Group label="Health conditions">
+            <Tags label="Conditions" values={p.conditions} onChange={v => set('conditions', v)} placeholder="For example: type 2 diabetes"
               suggestions={['type 2 diabetes', 'hypertension', 'pcos', 'high cholesterol', 'kidney disease']} />
-          </Field>
-          <Field label="Medications" hint="Some foods interact with medicines, so this keeps your plan safe.">
-            <Tags values={p.medications} onChange={v => set('medications', v)} placeholder="For example: metformin" suggestions={[]} />
-          </Field>
+          </Group>
+          <Group label="Medications" hint="Some foods interact with medicines, so this keeps your plan safe.">
+            <Tags label="Medications" values={p.medications} onChange={v => set('medications', v)} placeholder="For example: metformin" suggestions={[]} />
+          </Group>
           {p.sex === 'female' && (
-            <div className="flex gap-2">
-              <Chip on={p.pregnant} onClick={() => set('pregnant', !p.pregnant)}>Pregnant</Chip>
-              <Chip on={p.breastfeeding} onClick={() => set('breastfeeding', !p.breastfeeding)}>Breastfeeding</Chip>
-            </div>
+            <Group label="Pregnancy">
+              <div className="flex gap-2">
+                <Chip on={p.pregnant} onClick={() => set('pregnant', !p.pregnant)}>Pregnant</Chip>
+                <Chip on={p.breastfeeding} onClick={() => set('breastfeeding', !p.breastfeeding)}>Breastfeeding</Chip>
+              </div>
+            </Group>
           )}
         </div>
       ),
     },
   ]
 
-  const go = (d: number) => { setDir(d); setStep(s => s + d) }
+  const heading = useRef<HTMLHeadingElement>(null)
+  const moved = useRef(false)
+  useEffect(() => { if (moved.current) heading.current?.focus() }, [step])
+  const go = (d: number) => { moved.current = true; setDir(d); setStep(s => s + d) }
   const last = step === steps.length - 1
   const finish = async () => {
     setSaving(true); setError(null)
@@ -195,18 +215,18 @@ export function Onboarding({ initial, onDone }: { initial: Profile; onDone: (p: 
   return (
     <div className="min-h-full grid place-items-center px-5 py-12">
       <div className="w-full max-w-xl">
-        <div className="h-1 rounded-full bg-plum-2 overflow-hidden mb-10" role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={steps.length}>
+        <div className="h-1 rounded-full bg-plum-2 overflow-hidden mb-10" role="progressbar" aria-label="Setup progress" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={steps.length}>
           <motion.div className="h-full bg-turmeric" animate={{ width: `${((step + 1) / steps.length) * 100}%` }} transition={spring} />
         </div>
         <p className="text-sm text-dim mb-2">Step {step + 1} of {steps.length}</p>
         <AnimatePresence mode="wait" custom={dir}>
           <motion.div key={step} custom={dir}
             initial={{ opacity: 0, x: 40 * dir }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 * dir }} transition={spring}>
-            <h1 className="font-display text-4xl font-semibold mt-0 mb-8">{steps[step].title}</h1>
+            <h1 ref={heading} tabIndex={-1} className="font-display text-3xl sm:text-4xl font-semibold mt-0 mb-6 sm:mb-8 outline-none">{steps[step].title}</h1>
             {steps[step].body}
           </motion.div>
         </AnimatePresence>
-        {error && <p className="text-chilli text-sm mt-6">{error}</p>}
+        {error && <p role="alert" className="text-chilli text-sm mt-6">{error}</p>}
         <div className="flex justify-between items-center mt-12">
           <button type="button" onClick={() => go(-1)} disabled={step === 0} className="text-mist disabled:opacity-0">Back</button>
           <motion.button whileTap={{ scale: 0.96 }} type="button" disabled={!steps[step].ok || saving}
