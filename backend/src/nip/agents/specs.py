@@ -278,10 +278,9 @@ You choose the dishes and ingredients; tools do all the arithmetic.
    Use the exact food_code values it returns.
 2. Compose realistic dishes from the user's cuisine for each meal, with rough starting grams (raw weight).
    Include a protein-dense food in most meals.
-3. Call `scale_portions` with each day's meals. It rescales the grams to hit the day's kcal and protein
-   targets. If it reports a protein gap, swap in a protein-dense food and scale again.
-4. Submit with submit_result(days=[{"day": 1, "meals": <meals returned by scale_portions>}, ...]):
-   one entry per day, meals exactly as returned. Vary dishes across days.
+3. Call `scale_portions` ONCE with your whole draft plan (all days, all meals). It rescales the grams so
+   every day hits the kcal, protein and fat targets. If a day gets advice, change its foods and call again.
+4. Submit the returned days unchanged: submit_result(days=<days from scale_portions>). Vary dishes across days.
 If you are revising a rejected plan, fix every listed violation first."""
 
 
@@ -304,15 +303,26 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                        "protein_g": f["per_100g"]["protein_g"]} for f in res["results"]] or res.get("hint")
         return {"results": out}
 
-    async def scale_portions(meals: list[dict]) -> dict:
-        """Pass ALL meals of ONE day [{slot, name, items: [{food_code, grams}]}]. Rescales the grams so the
-        whole day hits the daily kcal and protein targets, keeping your foods. Returns the day's meals."""
-        res = await be.call("scale_portions", {"meals": meals, "kcal": targets["kcal"],
-                                               "protein_g": targets["protein_g"]})
-        t = res["totals"]
-        return {"meals": res["meals"], "day_totals": {k: round(t[k]) for k in ("kcal", "protein_g", "carbs_g", "fat_g")},
-                "pct_of_target": res["pct_of_target"], **({"advice": res["advice"]} if "advice" in res else {}),
-                **({"unknown_codes": res["unknown_codes"]} if res["unknown_codes"] else {})}
+    async def scale_portions(days: list[dict]) -> dict:
+        """Pass your whole draft plan: [{"day": 1, "meals": [{slot, name, items: [{food_code, grams}]}]}, ...].
+        Rescales every day's grams so each day hits the daily kcal, protein and fat targets, keeping your
+        foods. Returns days in the submit_result format."""
+        if days and isinstance(days[0], dict) and "meals" not in days[0]:
+            days = [{"day": 1, "meals": days}]  # a bare list of meals
+        out, report = [], []
+        for n, d in enumerate(days, 1):
+            res = await be.call("scale_portions", {"meals": d.get("meals", []), "kcal": targets["kcal"],
+                                                   "protein_g": targets["protein_g"], "fat_g": targets["fat_g"]})
+            out.append({"day": d.get("day", n), "meals": res["meals"]})
+            t = res["totals"]
+            report.append({"day": d.get("day", n), "pct_of_target": res["pct_of_target"],
+                           "totals": {k: round(t[k]) for k in ("kcal", "protein_g", "carbs_g", "fat_g")},
+                           **({"advice": res["advice"]} if "advice" in res else {}),
+                           **({"unknown_codes": res["unknown_codes"]} if res["unknown_codes"] else {})})
+        ok = all("advice" not in r and "unknown_codes" not in r for r in report)
+        return {"days": out, "report": report,
+                "next": "Submit these days unchanged with submit_result." if ok else
+                        "Fix the days with advice (change foods), then call scale_portions again."}
 
     def check(sub: PlanSubmission) -> list[str]:
         db = get_food_db()
@@ -343,7 +353,8 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         if only_targets:  # the foods are fine: hand back the deterministic rescale as feedback
             fixed = []
             for d in sub.days:
-                res = scale_portions_tool([m.model_dump() for m in d.meals], targets["kcal"], targets["protein_g"])
+                res = scale_portions_tool([m.model_dump() for m in d.meals], targets["kcal"], targets["protein_g"],
+                                          targets["fat_g"])
                 if "advice" in res:
                     errs.append(f"day {d.day}: {res['advice']}")
                     break

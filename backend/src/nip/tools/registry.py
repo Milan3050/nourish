@@ -37,7 +37,7 @@ def compute_meal_nutrition(items: list[dict]) -> dict:
     return {"totals": totals.model_dump(), "unknown_codes": unknown}
 
 
-def scale_portions(meals: list[dict], kcal: float, protein_g: float) -> dict:
+def scale_portions(meals: list[dict], kcal: float, protein_g: float, fat_g: float | None = None) -> dict:
     """Rescale one day's portions (keeping the chosen foods) to hit kcal and protein targets exactly.
 
     `meals` is [{slot, name, items: [{food_code, grams}]}]. Returns the meals with new grams and the
@@ -47,7 +47,7 @@ def scale_portions(meals: list[dict], kcal: float, protein_g: float) -> dict:
     flat = [(mi, FoodPortion(food_code=it["food_code"], food_name=it.get("food_name") or it["food_code"],
                              grams=float(it.get("grams") or 100)))
             for mi, m in enumerate(meals) for it in m.get("items", [])]
-    scaled = scale_to_targets(db, [p for _, p in flat], kcal, protein_g)
+    scaled = scale_to_targets(db, [p for _, p in flat], kcal, protein_g, fat_g)
     out = [{**{k: v for k, v in m.items() if k != "items"}, "items": []} for m in meals]
     for (mi, _), p in zip(flat, scaled, strict=True):
         f = db.get(p.food_code)
@@ -56,14 +56,15 @@ def scale_portions(meals: list[dict], kcal: float, protein_g: float) -> dict:
     totals, unknown = compute_totals(db, scaled)
     t = totals.model_dump()
     pct = {"kcal": round(100 * t["kcal"] / kcal) if kcal else None,
-           "protein_g": round(100 * t["protein_g"] / protein_g) if protein_g else None}
+           "protein_g": round(100 * t["protein_g"] / protein_g) if protein_g else None,
+           "fat_g": round(100 * t["fat_g"] / fat_g) if fat_g else None}
     res = {"meals": out, "totals": t, "pct_of_target": pct, "unknown_codes": unknown}
     advice = []
     if pct["kcal"] is not None and pct["kcal"] < 90:
-        advice.append("Energy is short even at large portions: add energy-dense foods (rice, bread, oats, roti, "
+        advice.append("Energy is short within realistic portions: add energy-dense foods (rice, bread, oats, roti, "
                       "nuts, milk, cooking oil) or another meal/snack.")
     if pct["kcal"] is not None and pct["kcal"] > 110:
-        advice.append("Energy is too high even at small portions: remove an energy-dense item.")
+        advice.append("Energy is too high within realistic portions: remove an energy-dense item.")
     if pct["protein_g"] is not None and pct["protein_g"] < 90:
         advice.append("Protein is short: add or swap in a protein-dense food (dal, paneer, soya, tofu, eggs, "
                       "chicken, fish, Greek yogurt).")
