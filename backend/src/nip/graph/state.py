@@ -25,6 +25,7 @@ class NIPState(TypedDict, total=False):
     input_flags: list[str]
     turn_exclusions: list[str]  # foods ruled out in this message ("without paneer"); this turn only
     plan_requested: bool  # the message asks for a plan or a change to one (deterministic, from the text)
+    requested_days: int | None  # "1-day plan" -> 1; None when the message does not say
     blocked_reason: str | None
     # durable user context (survives across turns in a thread)
     profile: dict

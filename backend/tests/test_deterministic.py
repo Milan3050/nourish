@@ -324,3 +324,18 @@ def test_safe_mode_answers_carry_no_intake_targets():
     bad = RecommendationSubmission(headline="Protein and CKD", summary="Aim for 1.6 g/kg of protein per day.")
     ok = RecommendationSubmission(headline="Protein and CKD", summary="Ask a renal dietitian to set your protein.")
     assert any("Safe mode" in e for e in agent.check(bad)) and agent.check(ok) == []
+
+
+def test_requested_day_count_is_enforced():
+    from nip.agents.specs import planner_agent
+    from nip.graph.build import requested_days
+
+    assert requested_days("Make me a 1-day plan") == 1 and requested_days("three days please") == 3
+    assert requested_days("lose 5 kg in 4 weeks, 1-day plan") == 1 and requested_days("Make me a meal plan") is None
+    profile = base_profile(diet_pattern=DietPattern.vegetarian)
+    agent = planner_agent({"profile": profile.model_dump(mode="json"), "health": assess(profile).model_dump(),
+                           "requested_days": 1})
+    meals = [{"slot": s, "name": "Dal", "items": [{"food_code": "IN-B010", "grams": 100}]}
+             for s in ("breakfast", "lunch", "dinner")]
+    out = agent.prepare({"days": [{"day": n, "meals": meals} for n in (1, 2, 3)]})
+    assert [d["day"] for d in out["days"]] == [1]

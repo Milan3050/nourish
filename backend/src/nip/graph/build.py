@@ -36,6 +36,21 @@ PLAN_REQUEST = re.compile(
     r"|(?:swap|replace|change)\s+(?:the\s+|my\s+)?(?:breakfast|lunch|dinner|snack|meal)"
     r"|make (?:tomorrow|today|day \d) (?:a|an)\b)", re.I)
 
+NUM_WORDS = {"one": 1, "a": 1, "single": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+DAYS = re.compile(r"\b(\d|one|a|single|two|three|four|five|six|seven)[- ](?:days?|day's)\b|\b(week|weekly)\b", re.I)
+
+
+def requested_days(text: str) -> int | None:
+    """Number of plan days the message asks for ('1-day plan', 'three days', 'a week'), or None."""
+    m = DAYS.search(text)
+    if not m:
+        return None
+    if m.group(2):
+        return 7
+    v = m.group(1).lower()
+    return min(int(v), 7) if v.isdigit() else NUM_WORDS[v]
+
+
 # Example ingredient names that exist in each region's table (search vocabulary for the planner).
 STAPLES = {
     "IN": "green gram dal, red gram dal, bengal gram whole, rajmah, soya bean, paneer, milk cow, egg poultry, "
@@ -109,6 +124,7 @@ async def intake(state: NIPState) -> dict:
         "request": check.text, "input_flags": check.flags, "turn": turn, "turn_steps": 0,
         "turn_exclusions": request_exclusions(get_food_db(), check.text, region),
         "plan_requested": bool(PLAN_REQUEST.search(check.text)),
+        "requested_days": requested_days(check.text),
         "turn_revisions": 0, "turn_tokens": 0, "recommendation": None, "next": None, "objectives": [],
         "pending_questions": [], "status": "running", "blocked_reason": None,
         "history": [{"role": "user", "content": check.text, "turn": turn}],
@@ -238,10 +254,11 @@ async def meal_planning(state: NIPState) -> dict:
     brief = (_common_brief(state) +
              f"\nProfile: {_j(ctx['profile'])}\nDaily targets: {_j(h['targets'])}\nLimits: {_j(h['limits'])}\n"
              f"Risk flags: {[f['code'] for f in h['risk_flags']]}\nMeals per day: {ctx['profile'].get('meals_per_day', 3)}\n"
-             f"Relevant evidence: {_j(evidence)}\nDefault to 3 days unless the user asked for a different number (max 7).\n"
+             f"Relevant evidence: {_j(evidence)}\nNumber of days: {state.get('requested_days') or 'not stated, use 3'}.\n"
              f"Staples in this food table: {STAPLES.get(ctx['profile'].get('region', 'IN'), '')}\n"
              f"Foods the user excluded in this message (never use them): {state.get('turn_exclusions') or 'none'}"
              + revising)
+    ctx["requested_days"] = state.get("requested_days")
     res = await specs.planner_agent(ctx, emit).run(brief)
     upd: dict[str, Any] = {"agent_runs": [_run_record(state, "meal_planning", res)],
                            "turn_tokens": state.get("turn_tokens", 0) + res.tokens}

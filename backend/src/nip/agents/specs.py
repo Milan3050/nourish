@@ -358,6 +358,9 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         blocked = {t for a in [*profile.allergies, *profile.intolerances] for t in alias_terms(a)}
         errs: list[str] = []
         nums = [d.day for d in sub.days]
+        want = ctx.get("requested_days")
+        if want and len(sub.days) != want:
+            errs.append(f"the user asked for {want} day(s); the plan has {len(sub.days)}")
         if len(set(nums)) != len(nums):
             errs.append(f"day numbers repeat ({nums}): put all of a day's meals in one day entry, days 1..N")
         need = min(profile.meals_per_day, 3)
@@ -429,7 +432,11 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         order = list(SLOT_ENERGY_SHARE)
         for d in merged.values():
             d["meals"].sort(key=lambda m: order.index(m["slot"]) if m.get("slot") in order else 99)
-        return {**args, "days": [merged[n] for n in sorted(merged)]}
+        out = [merged[n] for n in sorted(merged)]
+        want = ctx.get("requested_days")
+        if want and len(out) > want:  # the user asked for fewer days than drafted: keep the first ones
+            out = out[:want]
+        return {**args, "days": out}
 
     tools = [_tool(search_foods, "search_foods", search_foods.__doc__),
              _tool(scale_portions, "scale_portions", scale_portions.__doc__)]
