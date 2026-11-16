@@ -2,6 +2,9 @@
 .PHONY: setup infra index data retag mcp api web dev test lint eval eval-offline docker clean-db
 
 BACKEND := cd backend &&
+# API port; e.g. `make dev API_PORT=8010` if 8000 is taken (the web dev proxy follows it)
+API_PORT ?= 8000
+export API_PORT
 
 setup:            ## install backend + frontend dependencies
 	$(BACKEND) uv sync --extra dev
@@ -26,7 +29,7 @@ mcp:              ## MCP tool server on :8765
 	$(BACKEND) uv run python -m nip.mcp_server.server
 
 api:              ## API on :8000 with reload
-	$(BACKEND) uv run uvicorn nip.api.main:app --reload --port 8000
+	$(BACKEND) uv run uvicorn nip.api.main:app --reload --port $(API_PORT)
 
 web:              ## frontend on :5173
 	cd frontend && npm run dev

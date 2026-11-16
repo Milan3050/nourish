@@ -42,7 +42,7 @@ services:
       NIP_EMBEDDINGS_BASE_URL: http://host.docker.internal:11434
       NIP_OTEL_ENDPOINT: http://phoenix:6006/v1/traces
       NIP_CORS_ORIGINS: '["http://localhost:8080","http://localhost:5173"]'
-    ports: ["8000:8000"]
+    ports: ["${NIP_API_HOST_PORT:-8000}:8000"]
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on: { db: { condition: service_healthy }, mcp: { condition: service_started } }
 
