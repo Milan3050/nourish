@@ -289,6 +289,29 @@ If you are revising a rejected plan, fix every listed violation first. To change
 plan, you may submit only the changed meals: the others are kept."""
 
 
+def _short(name: str) -> str:
+    head = name.split(",")[0].strip()
+    return head[:1].upper() + head[1:].lower()
+
+
+def _honest_dish_names(args: dict, profile: dict) -> dict:
+    """A dish name that mentions foods the dish does not contain ("... with spinach" and no spinach) is
+    replaced by a name built from its real ingredients, so a misleading label never reaches the user."""
+    db, region = get_food_db(), profile.get("region", "IN")
+    days = args.get("days") if isinstance(args.get("days"), list) else []
+    for d in days:
+        for m in (d.get("meals") or []) if isinstance(d, dict) else []:
+            if not isinstance(m, dict) or not isinstance(m.get("name"), str):
+                continue
+            foods = [(f, it.get("grams") or 0) for it in m.get("items") or []
+                     if isinstance(it, dict) and (f := db.get(str(it.get("food_code"))))]
+            if foods and names_missing_foods(m["name"], [f.name for f, _ in foods], region):
+                main = [_short(f.name) for f, _ in sorted(foods, key=lambda x: -x[1])][:3]
+                main = list(dict.fromkeys(main))
+                m["name"] = main[0] + (" with " + " and ".join(x.lower() for x in main[1:]) if main[1:] else "")
+    return args
+
+
 def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
     be = get_backend()
     s = get_settings()
@@ -388,6 +411,7 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
     def prepare(args: dict) -> dict:
         """Edits of an existing plan: meals the submission leaves out are kept from the current plan, so
         "swap the dinner" can be submitted as just the new dinner."""
+        args = _honest_dish_names(args, ctx["profile"])
         current = (ctx.get("plan") or {}).get("days") or []
         days = args.get("days") if isinstance(args.get("days"), list) else None
         if not current or not days:

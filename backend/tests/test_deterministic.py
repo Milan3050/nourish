@@ -261,10 +261,10 @@ def test_partial_edit_keeps_untouched_meals():
         for s in ("breakfast", "lunch", "dinner")]}]}
     agent = planner_agent({"profile": profile.model_dump(mode="json"), "health": assess(profile).model_dump(),
                            "plan": current})
-    new_dinner = {"slot": "dinner", "name": "Rajma rice", "items": [{"food_code": "IN-B020", "grams": 80}]}
+    new_dinner = {"slot": "dinner", "name": "Rajma curry", "items": [{"food_code": "IN-B020", "grams": 80}]}
     out = agent.prepare({"days": [{"day": 1, "meals": [new_dinner]}]})
     meals = out["days"][0]["meals"]
-    assert [m["slot"] for m in meals] == ["breakfast", "lunch", "dinner"] and meals[2]["name"] == "Rajma rice"
+    assert [m["slot"] for m in meals] == ["breakfast", "lunch", "dinner"] and meals[2]["name"] == "Rajma curry"
 
 
 def test_scale_portions_balances_energy_across_meals():
@@ -288,3 +288,15 @@ def test_dish_names_must_match_ingredients():
     assert names_missing_foods("Stir-fry with paneer and brown rice", ["Ground nut", "Ladies finger"], "IN") == \
         ["paneer", "rice"]
     assert names_missing_foods("Moong dal with roti", ["Green gram, dal", "Wheat flour, atta"], "IN") == []
+
+
+def test_misleading_dish_names_are_renamed_from_ingredients():
+    from nip.agents.specs import _honest_dish_names
+
+    args = {"days": [{"day": 1, "meals": [
+        {"slot": "dinner", "name": "Paneer curry with spinach",
+         "items": [{"food_code": "IN-H012", "grams": 60}, {"food_code": "IN-A019", "grams": 120}]},
+        {"slot": "lunch", "name": "Moong dal with roti",
+         "items": [{"food_code": "IN-B010", "grams": 80}, {"food_code": "IN-A019", "grams": 100}]}]}]}
+    meals = _honest_dish_names(args, {"region": "IN"})["days"][0]["meals"]
+    assert meals[0]["name"] == "Wheat flour with ground nut" and meals[1]["name"] == "Moong dal with roti"
