@@ -51,7 +51,7 @@ export function ProfilePage({ profile, name, health, onEdit, onSaved }: {
           <Row k="Age" v={profile.age} /><Row k="Sex" v={profile.sex} />
           <Row k="Height" v={profile.height_cm ? `${Math.round(profile.height_cm)} cm` : null} /><Row k="Weight" v={profile.weight_kg ? `${profile.weight_kg} kg` : null} />
           <Row k="Activity" v={label(profile.activity)} /><Row k="Diet" v={profile.diet_pattern} />
-          <Row k="Meals a day" v={profile.meals_per_day} /><Row k="Religious rules" v={(profile.religious_rules ?? []).map(label).join(', ')} />
+          <Row k="Usual meals a day" v={profile.meals_per_day} /><Row k="Religious rules" v={(profile.religious_rules ?? []).map(label).join(', ')} />
           <Row k="Allergies" v={(profile.allergies ?? []).join(', ')} /><Row k="Conditions" v={(profile.conditions ?? []).join(', ')} />
           <Row k="Medications" v={(profile.medications ?? []).join(', ')} /><Row k="Target weight" v={profile.target_weight_kg ? `${profile.target_weight_kg} kg` : null} />
         </dl>

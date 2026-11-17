@@ -9,6 +9,8 @@ References (also in the knowledge corpus so the agents can cite them):
 
 from __future__ import annotations
 
+import math
+
 from nip.domain.models import (
     Activity,
     Goal,
@@ -20,6 +22,7 @@ from nip.domain.models import (
     Sex,
     UserProfile,
 )
+from nip.rules.engine import load_rules
 
 ACTIVITY_FACTORS: dict[Activity, float] = {
     Activity.sedentary: 1.2,
@@ -202,6 +205,12 @@ def assess(p: UserProfile) -> HealthProfile:
         cap = min(PROTEIN_MAX_G_PER_KG * p.weight_kg, PROTEIN_MAX_ENERGY_FRACTION * target / 4)
         limits.protein_g_max = round(max(protein_g * 1.1, cap), 0)
 
+    meal_rules = load_rules()["meals"]
+    suggested_meals = min(meal_rules["max_meals_per_day"],
+                          max(p.meals_per_day, math.ceil(round(target) / meal_rules["comfortable_kcal_per_meal"])))
+    if suggested_meals > p.meals_per_day:
+        assumptions.append(f"About {round(target / p.meals_per_day)} kcal per meal over {p.meals_per_day} meals is a lot "
+                           f"to eat; {suggested_meals} meals (adding snacks) make the target easier to reach.")
     h2 = (p.height_cm / 100) ** 2
     bmi_hi = 22.9 if p.region == Region.IN else 24.9
     return HealthProfile(
@@ -209,6 +218,7 @@ def assess(p: UserProfile) -> HealthProfile:
         tdee_kcal=maintenance,
         bmi=body_mass_index,
         healthy_weight_kg=[round(18.5 * h2, 1), round(bmi_hi * h2, 1)],
+        suggested_meals_per_day=suggested_meals,
         targets=MacroTargets(kcal=round(target, 0), protein_g=protein_g, carbs_g=carbs_g,
                              fat_g=fat_g, fiber_g=fiber_g),
         limits=limits,

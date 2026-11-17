@@ -167,7 +167,7 @@ export function Onboarding({ initial, onDone }: { initial: Profile; onDone: (p: 
               ))}
             </div>
           </Group>
-          <Group label="Meals a day">
+          <Group label="Meals you usually eat (we may suggest snacks if your target needs more)">
             <div className="flex gap-2">{[2, 3, 4, 5].map(n => <Chip key={n} on={p.meals_per_day === n} onClick={() => set('meals_per_day', n)}>{n}</Chip>)}</div>
           </Group>
         </div>

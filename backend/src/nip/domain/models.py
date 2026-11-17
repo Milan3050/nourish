@@ -125,6 +125,8 @@ class HealthProfile(BaseModel):
     bmi: float | None = None
     # Healthy weight for this height: BMI 18.5-22.9 (Indian consensus, region IN) or 18.5-24.9 (WHO, US).
     healthy_weight_kg: list[float] = []
+    # More meals than the user's usual number when each meal would otherwise be too large to eat comfortably.
+    suggested_meals_per_day: int | None = None
     targets: MacroTargets
     limits: NutrientLimits = NutrientLimits()
     risk_flags: list[RiskFlag] = []

@@ -111,9 +111,12 @@ def validate_plan(db: FoodDB, profile: UserProfile, health: HealthProfile, plan:
         d = day.totals or NutritionTotals()
         where = f"day {day.day}"
         vit_k.append(d.vitamin_k_ug)
-        if len(day.meals) != profile.meals_per_day:
+        if len(day.meals) > rules["meals"]["max_meals_per_day"]:
             v.append(Violation(rule_id="meal_count", severity="warning", location=where,
-                               message=f"{len(day.meals)} meals; profile asks for {profile.meals_per_day}."))
+                               message=f"{len(day.meals)} meals is more than {rules['meals']['max_meals_per_day']} a day."))
+        elif len(day.meals) != profile.meals_per_day:  # allowed: the planner may suggest more meals for the target
+            v.append(Violation(rule_id="meal_count", severity="info", location=where,
+                               message=f"{len(day.meals)} meals; the user usually eats {profile.meals_per_day}."))
         if d.kcal < floor and not health.escalation_required:
             v.append(Violation(rule_id="calorie_floor", severity="critical", location=where,
                                message=f"{d.kcal:.0f} kcal is below the {floor} kcal floor."))

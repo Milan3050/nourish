@@ -273,7 +273,11 @@ async def meal_planning(state: NIPState) -> dict:
     evidence = [{"q": e["question"], "a": e["answer"]} for e in ctx["evidence"]][-6:]
     brief = (_common_brief(state) +
              f"\nProfile: {_j(ctx['profile'])}\nDaily targets: {_j(h['targets'])}\nLimits: {_j(h['limits'])}\n"
-             f"Risk flags: {[f['code'] for f in h['risk_flags']]}\nMeals per day: {ctx['profile'].get('meals_per_day', 3)}\n"
+             f"Risk flags: {[f['code'] for f in h['risk_flags']]}\n"
+             f"Meals: the user usually eats {ctx['profile'].get('meals_per_day', 3)} a day; the energy calculation "
+             f"suggests {h.get('suggested_meals_per_day') or ctx['profile'].get('meals_per_day', 3)} for this target. If the "
+             "user's message says how many meals they want, follow it; otherwise use the suggestion (add snacks such as "
+             "mid_morning, snack or bedtime) and say why in notes.\n"
              f"Relevant evidence: {_j(evidence)}\nNumber of days: {state.get('requested_days') or 'not stated, use 3'}.\n"
              f"Staples in this food table: {STAPLES.get(ctx['profile'].get('region', 'IN'), '')}\n"
              f"Foods the user excluded in this message (never use them): {state.get('turn_exclusions') or 'none'}"

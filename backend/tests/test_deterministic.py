@@ -415,3 +415,16 @@ def test_meal_repair_drops_bad_items_and_packs_one_meal_days():
     assert len(days) == 1 and [m["slot"] for m in days[0]["meals"]] == ["breakfast", "lunch", "dinner"]
     assert all(i["food_code"] != "IN-ZZZ9" for m in days[0]["meals"] for i in m["items"])
     assert agent.check(PlanSubmission(days=days)) == []
+
+
+def test_more_meals_are_suggested_when_meals_would_be_too_large(db):
+    big = assess(base_profile(weight_kg=60, goal=Goal.gain_muscle, activity=Activity.active))
+    small = assess(base_profile(goal=Goal.lose_weight, activity=Activity.light))
+    assert big.suggested_meals_per_day == 5 and "kcal per meal" in big.assumptions[-1]
+    assert small.suggested_meals_per_day == 3
+    # more meals than the user's usual number is information, not a problem
+    p = base_profile()
+    meals = [Meal(slot=s, name=s, items=[FoodPortion(food_code="IN-A015", food_name="Rice", grams=50)])
+             for s in ("breakfast", "mid_morning", "lunch", "snack", "dinner")]
+    rep = validate_plan(db, p, assess(p), MealPlan(region=Region.IN, days=[DayPlan(day=1, meals=meals)]))
+    assert [v.severity for v in rep.violations if v.rule_id == "meal_count"] == ["info"]

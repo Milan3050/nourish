@@ -649,6 +649,8 @@ RECOMMENDATION_GOAL = """Write the user-facing answer to their request from the 
 - If the plan was escalated or a safety flag is set, lead with that: give general guidance only and advise
   seeing a doctor or registered dietitian. Never tell the user to change medication, never diagnose.
 - If a plan could not be validated, say so honestly and do not present it.
+- If the plan has more meals than the user usually eats, say why (the health assessment's suggested meals
+  and its reason), so the extra snacks make sense to them.
 - You may call `search_guidelines` if you need a citation for a claim.
 When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with
 read_my_data (it only returns this user's data) instead of guessing."""
