@@ -162,10 +162,14 @@ def _enforce_once(state: dict, nxt: str) -> tuple[str, str | None]:
     rejected = turn_plan and vals and vals[-1]["plan_version"] == plans[-1]["version"] and \
         vals[-1]["verdict"] == "REJECT"
 
-    if state.get("turn_steps", 0) >= s.max_supervisor_steps:
-        return "recommendation", BUDGET_PREFIX + "step budget reached; answering with what is available"
-    if state.get("turn_tokens", 0) >= s.max_request_tokens:
-        return "recommendation", BUDGET_PREFIX + "token budget reached; answering with what is available"
+    over = "step budget" if state.get("turn_steps", 0) >= s.max_supervisor_steps else \
+        "token budget" if state.get("turn_tokens", 0) >= s.max_request_tokens else None
+    if over:
+        # A plan already built this turn still goes through the safety gate (cheap) before answering:
+        # the budget never skips validation and never throws away a plan that could be shown.
+        if unvalidated and _ran_this_turn(state, "validation") < 2:
+            return "validation", BUDGET_PREFIX + f"{over} reached; validating the plan already built, then answering"
+        return "recommendation", BUDGET_PREFIX + f"{over} reached; answering with what is available"
     profile = _profile(state)
     health_tries = _ran_this_turn(state, "health_assessment")
     if nxt == "respond":

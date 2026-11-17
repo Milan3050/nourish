@@ -449,3 +449,14 @@ async def test_repaired_workout_is_accepted_when_the_agent_runs_out_of_steps(run
     wk = final["recommendation"]["workout"]
     assert wk and wk["verdict"] == "PASS" and len(wk["sessions"]) == VEG_PROFILE.get("training_days_per_week", 3)
     assert any(e["type"] == "agent_note" and e["agent"] == "Workout Planning Agent" for e in events)
+
+
+def test_budget_still_validates_a_plan_already_built():
+    from nip.graph.supervisor import Decision, enforce
+
+    state = {"turn": 1, "turn_tokens": 10**9, "health": {"escalation_required": False},
+             "plans": [{"version": 1, "turn": 1, "days": []}], "validations": [], "agent_runs": []}
+    d = Decision(objectives=[], next="recommendation", instruction="", reason="")
+    assert enforce(state, d)[0] == "validation"
+    state["validations"] = [{"plan_version": 1, "verdict": "PASS", "violations": []}]
+    assert enforce(state, d)[0] == "recommendation"
