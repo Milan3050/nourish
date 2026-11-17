@@ -186,7 +186,10 @@ export interface ThreadSummary {
   thread_id: string; title: string; started_at: string; updated_at: string; turns: number
   last: string; has_plan: boolean; has_workout: boolean
 }
+/** A turn cut off mid-run; its checkpoint says which nodes were still to run. */
+export interface Pending { request: string; next: string[] }
+
 export interface ThreadTurns {
-  thread_id: string; events: AgentEvent[]
+  thread_id: string; events: AgentEvent[]; pending: Pending | null
   turns: { turn: number; request: string; created_at: string; run_id: string; state: FinalState }[]
 }

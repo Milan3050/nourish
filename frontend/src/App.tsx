@@ -171,7 +171,7 @@ function Workspace({ chat, profile, name, historyOpen, setHistoryOpen }: {
       <div className="flex-1 min-w-0 min-h-0 grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
         <div className={clsx('min-h-0 lg:border-r border-line/70', pane === 'chat' ? 'block' : 'hidden lg:block')}>
           <Chat messages={chat.messages} busy={chat.busy} onSend={chat.send} region={profile.region} name={name}
-            onShowWork={() => showPane('work')} />
+            onShowWork={() => showPane('work')} pending={chat.pending} onResume={chat.resume} />
         </div>
         <div className={clsx('min-h-0 overflow-y-auto scroll-thin', pane === 'work' ? 'block' : 'hidden lg:block')}>
           <section aria-label="Agents" className="grid sm:grid-cols-[minmax(0,1fr)_14rem] gap-4 p-4 sm:p-5 border-b border-line/70">

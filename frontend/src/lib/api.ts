@@ -1,4 +1,4 @@
-import type { AgentEvent, CalendarEntry, FinalState, Goal, Profile, RunDetail, RunSummary, SavedPlan, ThreadSummary, ThreadTurns } from './types'
+import type { AgentEvent, CalendarEntry, FinalState, Goal, Pending, Profile, RunDetail, RunSummary, SavedPlan, ThreadSummary, ThreadTurns } from './types'
 
 const TOKEN_KEY = 'nip.token'
 const NAME_KEY = 'nip.name'
@@ -59,15 +59,19 @@ export const api = {
   updateGoal: (id: string, g: Partial<Goal>) => req<Goal>(`/api/goals/${id}`, { method: 'PATCH', body: JSON.stringify(g) }),
   deleteGoal: (id: string) => req<{ ok: boolean }>(`/api/goals/${id}`, { method: 'DELETE' }),
 
-  /** POST + server-sent events. EventSource can't POST, so we parse the stream ourselves. */
-  async stream(threadId: string, message: string, on: {
+  pending: (id: string) => req<{ pending: Pending | null }>(`/api/chat/${id}/pending`),
+
+  /** POST + server-sent events. EventSource can't POST, so we parse the stream ourselves.
+   *  message=null resumes the thread's interrupted turn from its last checkpoint. */
+  async stream(threadId: string, message: string | null, on: {
     agent: (e: AgentEvent) => void; final: (s: FinalState) => void; error: (m: string) => void
   }, signal?: AbortSignal) {
-    const r = await fetch(`/api/chat/${threadId}/stream`, {
+    const r = await fetch(`/api/chat/${threadId}/${message === null ? 'resume' : 'stream'}`, {
       method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
-      body: JSON.stringify({ message }),
+      body: message === null ? undefined : JSON.stringify({ message }),
     })
+    if (r.status === 409) return on.error('Nothing to resume: this conversation has no interrupted turn, or a run is still going.')
     if (r.status === 429) return on.error('You are sending messages quickly. Wait a moment and try again.')
     if (!r.ok || !r.body) return on.error(`The assistant is unavailable (${r.status}). Check that the API is running.`)
     const reader = r.body.getReader()

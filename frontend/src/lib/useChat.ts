@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { api } from './api'
-import { AGENT_BY_NAME, type AgentEvent, type AgentKey, type FinalState } from './types'
+import { AGENT_BY_NAME, type AgentEvent, type AgentKey, type FinalState, type Pending } from './types'
 
 export type AgentStatus = 'idle' | 'thinking' | 'working' | 'done' | 'failed' | 'skipped'
 
@@ -35,6 +35,7 @@ export function useChat() {
   const [flights, setFlights] = useState<Flight[]>([])
   const [busy, setBusy] = useState(false)
   const [latest, setLatest] = useState<FinalState | null>(null)
+  const [pending, setPending] = useState<Pending | null>(null)
   const lastAgent = useRef<AgentKey>('supervisor')
   const abort = useRef<AbortController | null>(null)
 
@@ -67,15 +68,19 @@ export function useChat() {
     else if (e.type === 'agent_finished') patch(key, { status: e.status === 'done' ? 'done' : 'failed', tool: undefined, ms: e.ms })
   }, [])
 
-  const send = useCallback(async (text: string) => {
-    if (!text.trim() || busy) return
+  /** Run a turn; text=null resumes the interrupted one from its last checkpoint. */
+  const run = useCallback(async (text: string | null) => {
+    if (busy || (text !== null && !text.trim())) return
     setBusy(true)
+    setPending(null)
     setEvents([])
     setFlights([])
     setAgents(freshAgents())
     lastAgent.current = 'supervisor'
-    setMessages(m => [...m, { id: crypto.randomUUID(), role: 'user', text }])
+    if (text !== null) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'user', text }])
+    else setMessages(m => m.filter(x => !x.error))
     abort.current = new AbortController()
+    let failed = false
     try {
       await api.stream(threadId, text, {
         agent: onAgent,
@@ -90,15 +95,25 @@ export function useChat() {
           const r = s.recommendation
           setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', text: r?.summary ?? '', state: s }])
         },
-        error: msg => setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', text: msg, error: true }]),
+        error: msg => {
+          failed = true
+          setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', text: msg, error: true }])
+        },
       }, abort.current.signal)
     } catch (err) {
-      if ((err as Error).name !== 'AbortError')
+      if ((err as Error).name !== 'AbortError') {
+        failed = true
         setMessages(m => [...m, { id: crypto.randomUUID(), role: 'assistant', text: (err as Error).message, error: true }])
+      }
     } finally {
       setBusy(false)
     }
+    // A dropped connection or API restart leaves the turn's checkpoint behind: offer to continue from it.
+    if (failed) api.pending(threadId).then(r => setPending(r.pending)).catch(() => {})
   }, [busy, threadId, onAgent])
+
+  const send = useCallback((text: string) => run(text), [run])
+  const resume = useCallback(() => run(null), [run])
 
   /** Reopen a past conversation: its messages, the last state shown and the last run's activity. */
   const open = useCallback(async (id: string) => {
@@ -109,6 +124,7 @@ export function useChat() {
       msgs.push({ id: `${turn.run_id}-u`, role: 'user', text: turn.request })
       msgs.push({ id: `${turn.run_id}-a`, role: 'assistant', text: turn.state?.recommendation?.summary ?? '', state: turn.state })
     }
+    if (t.pending) msgs.push({ id: 'pending-u', role: 'user', text: t.pending.request })
     const view = freshAgents()
     for (const e of t.events) {
       const key = e.agent ? AGENT_BY_NAME[e.agent] : undefined
@@ -119,12 +135,13 @@ export function useChat() {
     view.supervisor = { status: 'done', runs: 1 }
     setThreadId(id); setMessages(msgs); setEvents(t.events); setFlights([]); setAgents(view)
     setLatest(t.turns.at(-1)?.state ?? null)
+    setPending(t.pending)
   }, [])
 
   const reset = () => {
     abort.current?.abort()
-    setThreadId(newThread()); setMessages([]); setEvents([]); setFlights([]); setAgents(freshAgents()); setLatest(null)
+    setThreadId(newThread()); setMessages([]); setEvents([]); setFlights([]); setAgents(freshAgents()); setLatest(null); setPending(null)
   }
 
-  return { threadId, messages, events, agents, flights, busy, latest, send, reset, open }
+  return { threadId, messages, events, agents, flights, busy, latest, pending, send, resume, reset, open }
 }

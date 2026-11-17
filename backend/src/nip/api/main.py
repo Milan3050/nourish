@@ -226,10 +226,22 @@ async def chat_stream(thread_id: str, body: ChatRequest, user: str = Depends(rat
                          "timeline_weeks", "region", "conditions", "medications", "pregnant", "breastfeeding")
         if current and any(current.get(k) != inp["profile"].get(k) for k in energy_fields):
             inp["health"] = None  # stale targets: the health assessment runs again
+    return EventSourceResponse(_run_events(user, thread_id, cfg, inp))
+
+
+ACTIVE: set[str] = set()  # threads with a run in flight in this process
+
+
+def _run_events(user: str, thread_id: str, cfg: dict, inp: dict | None):
+    """Stream one turn. inp=None continues the thread from its last checkpoint instead of starting a turn."""
+    key = cfg["configurable"]["thread_id"]
+    if key in ACTIVE:
+        raise HTTPException(409, "this conversation already has a run in progress")
     usage = UsageTracker()
     cfg = {**cfg, "callbacks": [usage]}
 
     async def events():
+        ACTIVE.add(key)
         t0 = time.perf_counter()
         started = time.time()
         status = "error"
@@ -259,10 +271,33 @@ async def chat_stream(thread_id: str, body: ChatRequest, user: str = Depends(rat
             yield {"event": "error", "data": json.dumps({"message": "Something went wrong. Please try again.",
                                                          "detail": str(e)[:200] if get_settings().env == "dev" else None})}
         finally:
+            ACTIVE.discard(key)
             REQUESTS.labels(status).inc()
             LATENCY.observe(time.perf_counter() - t0)
 
-    return EventSourceResponse(events())
+    return events()
+
+
+async def _pending(cfg: dict) -> dict | None:
+    """A turn cut off mid-run (API restart, dropped connection) leaves a checkpoint with nodes still to run."""
+    snap = await S.graph.aget_state(cfg)
+    if not snap.next or cfg["configurable"]["thread_id"] in ACTIVE:
+        return None
+    return {"request": (snap.values or {}).get("request", ""), "next": list(snap.next)}
+
+
+@app.get("/api/chat/{thread_id}/pending")
+async def chat_pending(thread_id: str, user: str = Depends(current_user)) -> dict:
+    return {"pending": await _pending(_thread_cfg(user, thread_id))}
+
+
+@app.post("/api/chat/{thread_id}/resume")
+async def chat_resume(thread_id: str, user: str = Depends(rate_limit)):
+    """Continue an interrupted turn from its last checkpoint: finished agents' work is kept, not redone."""
+    cfg = _thread_cfg(user, thread_id)
+    if not await _pending(cfg):
+        raise HTTPException(409, "nothing to resume in this conversation")
+    return EventSourceResponse(_run_events(user, thread_id, cfg, None))
 
 
 # ------------------------------------------------------------------ runs -------------------------------
@@ -519,7 +554,8 @@ async def thread_turns(thread_id: str, user: str = Depends(current_user)) -> dic
                 t["state"] = {"status": "answered", "turn": t["turn"], "recommendation": {
                     "headline": "", "summary": text, "key_points": [], "tips": [], "citations": [],
                     "follow_up_questions": [], "disclaimer": ""}, "evidence": [], "health": None}
-    return {"thread_id": thread_id, "turns": turns, "events": runs[-1].get("events", [])}
+    return {"thread_id": thread_id, "turns": turns, "events": runs[-1].get("events", []),
+            "pending": await _pending(_thread_cfg(user, thread_id))}
 
 
 @app.get("/api/threads/{thread_id}")

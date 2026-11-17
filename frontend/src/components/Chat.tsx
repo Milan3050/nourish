@@ -1,9 +1,9 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { ArrowUp, Loader2 } from 'lucide-react'
+import { ArrowUp, Loader2, RotateCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import type { ChatMessage } from '../lib/useChat'
-import type { Region } from '../lib/types'
+import type { Pending, Region } from '../lib/types'
 
 const SUGGESTIONS: Record<Region, string[]> = {
   IN: [
@@ -62,9 +62,9 @@ function Assistant({ m, onAsk, isLast }: { m: ChatMessage; onAsk: (q: string) =>
   )
 }
 
-export function Chat({ messages, busy, onSend, region, name, onShowWork }: {
+export function Chat({ messages, busy, onSend, region, name, onShowWork, pending, onResume }: {
   messages: ChatMessage[]; busy: boolean; onSend: (t: string) => void; region: Region; name: string
-  onShowWork?: () => void
+  onShowWork?: () => void; pending?: Pending | null; onResume?: () => void
 }) {
   const [text, setText] = useState('')
   const end = useRef<HTMLDivElement>(null)
@@ -109,6 +109,15 @@ export function Chat({ messages, busy, onSend, region, name, onShowWork }: {
               <button type="button" onClick={onShowWork} className="lg:hidden text-turmeric underline underline-offset-2">Watch the agents</button>
             )}
           </motion.p>
+        )}
+        {pending && !busy && onResume && (
+          <div role="status" className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-plum px-4 py-3 text-sm">
+            <span className="text-mist flex-1 min-w-[12rem]">This turn was interrupted. The work finished so far is saved, so it can carry on from there.</span>
+            <button type="button" onClick={onResume}
+              className="inline-flex items-center gap-1.5 rounded-full bg-turmeric text-night font-semibold px-3.5 py-1.5">
+              <RotateCw size={14} aria-hidden /> Resume
+            </button>
+          </div>
         )}
         <div ref={end} />
       </div>

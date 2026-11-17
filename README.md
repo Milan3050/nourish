@@ -29,8 +29,10 @@ It runs fully local on a 7B model through Ollama, and switches to OpenAI, Claude
 6. [Opening it from another device (Tailscale)](#opening-it-from-another-device-tailscale)
 7. [Tests and evaluation](#tests-and-evaluation)
 8. [Beyond the requirements](#beyond-the-requirements)
-9. [Repository layout](#repository-layout)
-10. [Limits and honest caveats](#limits-and-honest-caveats)
+9. [Scaling in production](#scaling-in-production)
+10. [Planned updates](#planned-updates)
+11. [Repository layout](#repository-layout)
+12. [Limits and honest caveats](#limits-and-honest-caveats)
 
 ---
 
@@ -250,7 +252,7 @@ fixing it.
 | `make check-llm` | Smoke-test the provider in `.env` |
 | `make dev` | Run everything for development |
 | `make mcp` / `make api` / `make web` | Run one service |
-| `make test` | 87 deterministic tests (no LLM needed) |
+| `make test` | 88 deterministic tests (no LLM needed) |
 | `make eval-offline` | Retrieval metrics (dense / sparse / hybrid) |
 | `make eval` | Agent scenarios and red team against the configured model |
 | `make docker` | Everything in containers (web app on http://localhost:8080) |
@@ -309,7 +311,7 @@ which this app is not hardened for. Alternatively `make dev WEB_HOST=0.0.0.0` se
 ## Tests and evaluation
 
 ```bash
-make test           # 87 deterministic tests: tools, rules, solver, retrieval, MCP, API, orchestration (scripted LLM)
+make test           # 88 deterministic tests: tools, rules, solver, retrieval, MCP, API, orchestration (scripted LLM)
 make eval-offline   # retrieval: Recall@K, Precision@K, MRR, nDCG for dense / sparse / hybrid
 make eval           # 16 agent scenarios + 10 red-team attacks against the configured model
 cd backend && uv run python -m nip.eval.run --suite agents --judge   # + faithfulness, groundedness, relevance
@@ -353,6 +355,9 @@ recovery); a live session afterwards delivered a validated meal plan and a check
 
 **Engineering**
 
+- **Checkpoints and resume**: the graph runs on a Postgres checkpointer that saves the state after every node.
+  If a turn is cut off (API restart, dropped connection), the chat shows *Resume* and the turn carries on from
+  its last checkpoint (`POST /api/chat/{id}/resume`); agents that already finished are not run again.
 - MCP tool server with DNS-rebinding protection (Host allow-list) even when bound to 0.0.0.0 in containers.
 - Request constraints enforced in code: foods excluded in the message, number of days, plan/workout intent.
 - Honest failure: when no plan passes, the answer says so with the real reason; a deterministic fallback answer
@@ -363,6 +368,64 @@ recovery); a live session afterwards delivered a validated meal plan and a check
 - Accessibility: ARIA tabs, labelled form groups, focus management, reduced-motion support, mobile layout.
 - `make check-llm` provider smoke test; one-line switch to hosted models; Tailscale Serve support.
 - Observability: OpenTelemetry traces in Phoenix, Prometheus metrics at `/metrics`, structured logs with PII redaction.
+
+---
+
+## Scaling in production
+
+The full design is in [docs/deployment.md](docs/deployment.md). In short:
+
+```mermaid
+flowchart LR
+    U([Users]) --> CDN[CDN<br/>static web app]
+    U --> LB[Load balancer<br/>TLS · WAF]
+    LB --> API1[API pod]
+    LB --> API2[API pod]
+    LB --> APIn[API pod ...]
+    API1 & API2 & APIn --> MCP[MCP tool pods<br/>foods · rules · RAG]
+    API1 & API2 & APIn --> GW[LLM gateway<br/>routing · fallback · budgets]
+    GW --> LLM[(Hosted models<br/>or vLLM on GPUs)]
+    API1 & API2 & APIn --> R[(Redis<br/>rate limits · run leases)]
+    API1 & API2 & APIn --> PG[(Postgres primary<br/>checkpoints · user data · pgvector)]
+    MCP --> PG
+    PG --> RR[(Read replica<br/>runs · analytics)]
+    TQ[Temporal workers<br/>weekly re-plans · re-indexing] --> API1
+```
+
+**What scales, and how**
+
+| Part | How it scales | Already in place | Needed for production |
+|---|---|---|---|
+| API (FastAPI + LangGraph) | Horizontally. Pods hold no conversation state: every node writes a checkpoint to Postgres, so any pod can serve or resume any thread | Postgres checkpointer, stateless handlers, resume endpoint | Autoscale on in-flight streams as well as CPU (streams are long-lived and mostly waiting on the model) |
+| One run per thread | A thread must not run twice at once | In-process guard (409 while a run is in flight) | Move the guard to a Redis lease or a Postgres advisory lock so it holds across pods |
+| Rate limits | Per user, sliding window | In memory, per process | Redis-backed so limits hold across pods |
+| Deterministic tools | Separate MCP pods, CPU only, scale independently of the API | MCP server with a Host allow-list | Service-to-service auth (mTLS) on the private network |
+| LLM calls (the real bottleneck) | Throughput is bounded by the provider's rate limits or your GPUs, not by this code | `.env` switch to any hosted model, token and step budgets per turn, cost tracking per run | A gateway (LiteLLM or similar): small model for the supervisor, larger for planning, fallback provider, per-tenant budgets, caching of retrieval-only answers |
+| Postgres | Vertical first, then read replicas; one database to secure and back up | pgvector + full-text in the same database | Managed multi-AZ, HNSW index on embeddings, checkpoints partitioned by month with retention, runs history read from a replica |
+| Long or scheduled work | Out of the request path | n/a | Temporal workflows (weekly re-plans, re-validating saved plans when rules change, corpus re-indexing) calling the same graph |
+
+**Sizing rule of thumb.** Concurrent streams ≈ turns per second × seconds per turn. Recorded plan turns
+on the local 7B made 58-118 model calls (tool steps, retries and checks; a stronger model needs fewer). At
+5 plan turns a second, 30 s per turn and ~80 calls per turn, that is about 150 open streams and 400 model
+calls a second. API pods handle that easily (async I/O);
+the provider's rate limit is what you size and pay for. Cheap turns (greetings, evidence questions) take a
+few calls, and the supervisor routes them without running the planners.
+
+**Cost and latency levers** that already exist in the code: per-turn step and token budgets, a revision cap,
+deterministic repair before asking the model again, streaming so the user sees progress immediately, and
+per-run token and cost records to find the expensive agents.
+
+---
+
+## Planned updates
+
+- **Agents asking questions.** Today the `clarify` step asks only for essentials (age, sex, height, weight)
+  when the energy maths cannot run without them. The next step is letting any agent pause with a question
+  ("Do you eat eggs?", "Which days can you train?") using LangGraph's `interrupt()`: the question is
+  saved in the checkpoint, the chat shows it with suggested answers, and the turn continues from the same
+  point once the user replies instead of starting over.
+- Cross-pod run guard and rate limits on Redis (see the table above).
+- Weekly re-planning from the calendar and goal progress (Temporal).
 
 ---
 
@@ -381,7 +444,7 @@ backend/src/nip/
   observability/ structured logging, OpenTelemetry tracing, token usage and cost
   eval/          metrics, LLM judge, runner
   llm_check.py   provider smoke test (make check-llm)
-backend/tests/   87 deterministic tests (scripted LLM for orchestration)
+backend/tests/   88 deterministic tests (scripted LLM for orchestration)
 frontend/src/    Vite + React + Motion: chat, live agent graph, pages (plans, calendar, goals, runs, profile)
 data/            food tables, guideline corpus, exercise library
 eval/            datasets and committed result summaries

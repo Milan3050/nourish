@@ -94,3 +94,36 @@ async def test_runs_plans_calendar_and_goals(client):
     other = (await client.post("/api/auth/dev-token", json={"name": "x"})).json()["token"]
     assert (await client.get(f"/api/runs/{run['id']}", headers={"Authorization": f"Bearer {other}"})).status_code == 404
     assert (await client.get("/api/threads/t9/turns", headers={"Authorization": f"Bearer {other}"})).status_code == 404
+
+
+async def test_resume_interrupted_turn(client):
+    """A turn cut off after an agent finished continues from its checkpoint; the agent's work is kept."""
+    from nip.api.main import S, _thread_cfg
+    login = (await client.post("/api/auth/dev-token", json={"name": "Rez"})).json()
+    tok, user = login["token"], login["user_id"]
+    h = {"Authorization": f"Bearer {tok}"}
+    await client.put("/api/profile", json={**VEG_PROFILE, "allergies": []}, headers=h)
+    assert (await client.post("/api/chat/r1/resume", headers=h)).status_code == 409  # nothing to resume
+    cfg = _thread_cfg(user, "r1")
+    set_model_override(ScriptedChatModel(policy=veg_world()))
+    inp = {"request": "1-day plan", "user_id": user, "profile": {**VEG_PROFILE, "allergies": []}}
+    async for _ in S.graph.astream(inp, cfg, interrupt_after=["meal_planning"]):
+        pass  # stands in for the process dying right after the planner's checkpoint
+    pending = (await client.get("/api/chat/r1/pending", headers=h)).json()["pending"]
+    assert pending == {"request": "1-day plan", "next": ["supervisor"]}
+    events = []
+    async with client.stream("POST", "/api/chat/r1/resume", headers=h) as r:
+        assert r.status_code == 200
+        ev = None
+        async for line in r.aiter_lines():
+            if line.startswith("event:"):
+                ev = line.split(":", 1)[1].strip()
+            elif line.startswith("data:"):
+                events.append((ev, json.loads(line.split(":", 1)[1])))
+    set_model_override(None)
+    assert events[-1][0] == "final" and events[-1][1]["recommendation"]["plan"]
+    started = [d["agent"] for e, d in events if e == "agent" and d.get("type") == "agent_started"]
+    assert "meal_planning" not in started  # the plan built before the cut-off was reused
+    assert (await client.get("/api/chat/r1/pending", headers=h)).json()["pending"] is None
+    turns = (await client.get("/api/threads/r1/turns", headers=h)).json()
+    assert turns["pending"] is None and turns["turns"][-1]["state"]["recommendation"]["plan"]
