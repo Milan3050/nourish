@@ -51,31 +51,90 @@ It runs fully local on a 7B model through Ollama, and switches to OpenAI, Claude
 
 ## Architecture
 
-```
- Browser (Vite + React)            API service (FastAPI)                      Tool service (MCP)
- ┌──────────────────────┐ POST+SSE ┌─────────────────────────────────┐  MCP   ┌──────────────────────┐
- │ chat · live agent    │─────────▶│ auth · rate limit · input guard │──────▶│ search_foods          │
- │ graph · plans · runs │◀─────────│ LangGraph: supervisor + agents  │◀──────│ scale_portions        │
- │ calendar · goals     │  events  │ checkpoints, runs, plans (PG)   │       │ assess_energy         │
- └──────────────────────┘          └──────┬───────────────┬──────────┘       │ check_plan (rules)    │
-                                          │               │                  │ search/check_workout  │
-                           OpenAI-compatible LLM    OpenTelemetry            │ search_guidelines     │
-                           (Ollama / hosted)        → Phoenix                └─────────┬────────────┘
-                                                                              Postgres + pgvector
-                                                                              food tables (IN, US)
+### System overview
+
+```mermaid
+flowchart LR
+    subgraph Browser["Browser · Vite + React"]
+        UI["Chat · live agent graph<br/>Plans · Calendar · Goals<br/>Runs · Profile"]
+    end
+    subgraph API["API service · FastAPI"]
+        Guard["Auth · rate limit<br/>input guard · PII redaction"]
+        Graph["LangGraph<br/>supervisor + 6 agents"]
+        Guard --> Graph
+    end
+    subgraph MCP["Tool service · MCP"]
+        Tools["search_foods · scale_portions<br/>assess_energy · check_plan<br/>search / check_workout<br/>search_guidelines"]
+    end
+    subgraph Data["Postgres + pgvector"]
+        DB[("Checkpoints · profiles<br/>runs · plans · calendar · goals")]
+        KB[("Guideline index<br/>food tables IN / US")]
+    end
+    LLM["OpenAI-compatible LLM<br/>Ollama or hosted"]
+    Phoenix["OpenTelemetry<br/>→ Phoenix"]
+
+    UI -- "POST + SSE events" --> Guard
+    Graph -- "MCP" --> Tools
+    Graph --> LLM
+    Graph --> DB
+    Graph -. traces .-> Phoenix
+    Tools --> KB
 ```
 
 ### Orchestration
 
+```mermaid
+flowchart TD
+    Start([User message]) --> Intake["Intake<br/>deterministic guards + request constraints"]
+    Intake -->|blocked: injection / crisis| Stop([Fixed safe response])
+    Intake --> Sup{"Supervisor<br/>LLM decision"}
+    Sup --> Enf["enforce()<br/>invariants in code"]
+    Enf --> HA[Health Assessment]
+    Enf --> NK["Nutrition Knowledge<br/>agentic RAG"]
+    Enf --> MP[Meal Planning]
+    Enf --> WP[Workout Planning]
+    Enf --> VA[Validation]
+    HA & NK & MP & WP & VA -->|result + state| Sup
+    Enf --> RE[Recommendation] --> End([Answer])
+    Enf --> CL[Clarify] --> End2([Questions for the user])
+    Enf --> RS["Respond<br/>small talk"] --> End3([Short reply])
 ```
-intake ─▶ supervisor ─┬─▶ health_assessment ──┐
-            ▲         ├─▶ nutrition_knowledge ┤
-            │         ├─▶ meal_planning ──────┤ back to supervisor
-            │         ├─▶ workout_planning ───┤
-            └─────────┼─▶ validation ─────────┘
-                      ├─▶ recommendation ─▶ END
-                      ├─▶ clarify ─▶ END
-                      └─▶ respond (small talk) ─▶ END
+
+### Inside every agent: done means the checks pass
+
+```mermaid
+flowchart LR
+    Brief([Brief from the supervisor]) --> Think["Think<br/>LLM picks a tool"]
+    Think --> Act["Act<br/>deterministic tool runs"]
+    Act --> Think
+    Think -->|submit_result| Check{"Acceptance checks<br/>in code"}
+    Check -->|errors as feedback| Think
+    Check -->|pass| Out([Typed result into shared state])
+```
+
+### A meal and workout request, step by step
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant S as Supervisor + enforce()
+    participant H as Health Assessment
+    participant M as Meal Planning
+    participant V as Validation
+    participant W as Workout Planning
+    participant R as Recommendation
+    U->>S: "Build me a workout and meal plan"
+    S->>H: profile needed first (invariant)
+    H-->>S: BMI, targets, protein range, risk flags (computed by tools)
+    S->>M: plan requested
+    M-->>S: foods chosen, grams solved by scale_portions
+    S->>V: unvalidated plans are never shown (invariant)
+    V-->>S: PASS (rule engine + review)
+    S->>W: workout requested and not yet made (invariant)
+    W-->>S: weekly plan, passes the workout rule engine
+    S->>R: write the answer
+    R-->>U: cited, grounded answer with both plans
 ```
 
 - **Intake** runs deterministic guards before any model sees the text: PII redaction, prompt-injection
