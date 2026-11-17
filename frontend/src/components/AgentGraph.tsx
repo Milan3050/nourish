@@ -4,7 +4,7 @@ import type { AgentStatus, AgentView, Flight } from '../lib/useChat'
 import { AGENT_LABEL, type AgentKey } from '../lib/types'
 
 /**
- * The agent graph drawn as a thali: the Supervisor is the centre bowl, the five specialists are katoris
+ * The agent graph drawn as a plate: the Supervisor is the centre bowl, the specialists are smaller bowls
  * around the rim. A bowl fills while its agent works; handoffs travel across the plate as a grain of light.
  */
 
@@ -112,7 +112,7 @@ function Bowl({ k, view, verdict }: { k: AgentKey; view: AgentView; verdict?: st
   )
 }
 
-export function Thali({ agents, flights, verdict, revisions }: {
+export function AgentGraph({ agents, flights, verdict, revisions }: {
   agents: Record<AgentKey, AgentView>; flights: Flight[]; verdict?: string; revisions: number
 }) {
   const reduce = useReducedMotion()

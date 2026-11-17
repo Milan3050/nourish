@@ -1,4 +1,4 @@
-# Thali: Nutrition Intelligence Platform
+# Nourish: Nutrition Intelligence Platform
 
 Personalised nutrition guidance, meal plans and workout plans from a team of goal-driven AI agents.
 A supervisor routes each request to specialist agents; every number (energy needs, nutrients, portions,
@@ -283,7 +283,7 @@ recovery); a live session afterwards delivered a validated meal plan and a check
 - **Conversation history**: reopen past chats with their plans, workout, sources and activity.
 - **Profile page**: computed BMI, healthy-weight range for your height (Indian or WHO cut-offs), energy target,
   protein range, training settings, spend so far.
-- **Live agent graph** drawn as a thali: bowls fill as agents work, hand-offs fly across the plate, verdicts stamp.
+- **Live agent graph** drawn as a plate: bowls fill as agents work, hand-offs fly across the plate, verdicts stamp.
 
 **Engineering**
 
@@ -315,7 +315,7 @@ backend/src/nip/
   eval/          metrics, LLM judge, runner
   llm_check.py   provider smoke test (make check-llm)
 backend/tests/   81 deterministic tests (scripted LLM for orchestration)
-frontend/src/    Vite + React + Motion: chat, thali graph, pages (plans, calendar, goals, runs, profile)
+frontend/src/    Vite + React + Motion: chat, live agent graph, pages (plans, calendar, goals, runs, profile)
 data/            food tables, guideline corpus, exercise library
 eval/            datasets and committed result summaries
 ollama/          Modelfiles for the 32k-context local models

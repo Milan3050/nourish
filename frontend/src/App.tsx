@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { api, session } from './lib/api'
 import { AGENT_BY_NAME, AGENT_LABEL, EMPTY_PROFILE, type AgentEvent, type AgentKey, type Health, type Profile } from './lib/types'
 import { useChat, type AgentView, type Flight } from './lib/useChat'
-import { Thali } from './components/Thali'
+import { AgentGraph } from './components/AgentGraph'
 import { ActivityLog } from './components/ActivityLog'
 import { Chat } from './components/Chat'
 import { EvidencePanel, PlanPanel, TargetsPanel, WorkoutPanel, type GuidelineSearch } from './components/Panels'
@@ -22,7 +22,7 @@ import { ProfilePage } from './pages/ProfilePage'
 const spring = { type: 'spring' as const, stiffness: 380, damping: 32 }
 const DEMO: AgentKey[] = ['health_assessment', 'meal_planning', 'validation', 'recommendation']
 
-/** The landing hero: the thali plays through one request while you type your name. */
+/** The landing hero: the agent plate plays through one request while you type your name. */
 function useDemo() {
   const idle = (): Record<AgentKey, AgentView> => Object.fromEntries(
     (['supervisor', 'health_assessment', 'nutrition_knowledge', 'meal_planning', 'workout_planning', 'validation', 'recommendation'] as AgentKey[])
@@ -51,7 +51,7 @@ function Welcome({ onIn }: { onIn: (name: string) => Promise<void> }) {
   return (
     <main className="min-h-full grid lg:grid-cols-[1fr_1.1fr] items-center gap-8 px-4 sm:px-6 lg:px-16 py-10 sm:py-12 max-w-7xl mx-auto">
       <div className="max-w-lg">
-        <p className="font-display text-turmeric text-lg mb-6">Thali</p>
+        <p className="font-display text-turmeric text-lg mb-6">Nourish</p>
         <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-semibold leading-[1.04] tracking-tight m-0">
           Meals planned around your body, your kitchen and your medicines.
         </h1>
@@ -73,7 +73,7 @@ function Welcome({ onIn }: { onIn: (name: string) => Promise<void> }) {
       </div>
       <motion.div initial={{ opacity: 0, scale: 0.94, rotate: -6 }} animate={{ opacity: 1, scale: 1, rotate: 0 }}
         transition={{ type: 'spring', stiffness: 60, damping: 16 }} className="aspect-square w-full max-w-[560px] justify-self-center">
-        <Thali agents={demo.agents} flights={demo.flights} revisions={0} verdict={demo.agents.validation.status === 'done' ? 'PASS' : undefined} />
+        <AgentGraph agents={demo.agents} flights={demo.flights} revisions={0} verdict={demo.agents.validation.status === 'done' ? 'PASS' : undefined} />
       </motion.div>
     </main>
   )
@@ -176,7 +176,7 @@ function Workspace({ chat, profile, name, historyOpen, setHistoryOpen }: {
         <div className={clsx('min-h-0 overflow-y-auto scroll-thin', pane === 'work' ? 'block' : 'hidden lg:block')}>
           <section aria-label="Agents" className="grid sm:grid-cols-[minmax(0,1fr)_14rem] gap-4 p-4 sm:p-5 border-b border-line/70">
             <div className="aspect-square max-h-[380px] w-full mx-auto">
-              <Thali agents={chat.agents} flights={chat.flights} verdict={verdict} revisions={revisions} />
+              <AgentGraph agents={chat.agents} flights={chat.flights} verdict={verdict} revisions={revisions} />
             </div>
             <div className="min-h-0 max-h-[380px] flex flex-col">
               <h2 className="font-display text-base font-semibold mt-1 mb-3">What the agents are doing</h2>
@@ -250,7 +250,7 @@ function Shell({ profile, name, onEditProfile, onProfile }: {
   return (
     <div className="h-full flex flex-col">
       <header className="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-line/70">
-        <span className="font-display text-xl font-semibold text-turmeric">Thali</span>
+        <span className="font-display text-xl font-semibold text-turmeric">Nourish</span>
         <nav aria-label="Main" className="flex-1 min-w-0 overflow-x-auto scroll-thin">
           <ul className="flex gap-1 list-none m-0 p-0">
             {PAGES.map(([k, l, Icon]) => (
