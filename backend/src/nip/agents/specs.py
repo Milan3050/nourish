@@ -675,7 +675,7 @@ def recommendation_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         if ctx.get("change_failed") and CLAIMS_CHANGE.search(text):
             errs.append(f"The requested change was NOT made (no revised plan passed validation), but the text "
                         f"says it was ('{CLAIMS_CHANGE.search(text).group(0)}'). Say the change could not be made.")
-        if not ctx.get("plan_shown", True) and CLAIMS_PLAN.search(text):
+        if ctx.get("plan_at_stake", True) and not ctx.get("plan_shown", True) and CLAIMS_PLAN.search(text):
             errs.append(f"No validated plan is shown to the user, but the text presents one "
                         f"('{CLAIMS_PLAN.search(text).group(0)}'). Do not describe a plan.")
         ungrounded = ungrounded_numbers(text, known_numbers(ctx))

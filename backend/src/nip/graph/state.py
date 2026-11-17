@@ -30,6 +30,7 @@ class NIPState(TypedDict, total=False):
     weight_question: bool  # "how much should I weigh?": the answer leads with the computed healthy range
     user_goals: list[dict]  # the user's active goals (weight, workout, nutrition, habit), from the goals page
     blocked_reason: str | None
+    small_talk: bool  # a greeting or thanks, answered at intake without agents
     # durable user context (survives across turns in a thread)
     profile: dict
     health: dict | None

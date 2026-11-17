@@ -36,6 +36,12 @@ PLAN_REQUEST = re.compile(
     r"|(?:swap|replace|change)\s+(?:the\s+|my\s+)?(?:breakfast|lunch|dinner|snack|meal)"
     r"|make (?:tomorrow|today|day \d) (?:a|an)\b)", re.I)
 
+# Greetings, thanks and acknowledgements on their own: answered at intake without running any agent.
+SMALL_TALK = re.compile(r"^\s*(?:hi+|hello+|hey+|hiya|yo|namaste|hola|good (?:morning|afternoon|evening|night)|"
+                        r"thanks?(?: you)?(?: so much| a lot)?|thx|cheers|ok(?:ay)?|cool|great|nice|got it|"
+                        r"bye|see you|how are you\??)(?:\s+(?:there|thali|again))?[\s!.?,:)]*$", re.I)
+SMALL_TALK_SUGGESTIONS = ["Plan a day of meals for my goal", "Build me a 3-day workout plan",
+                          "How much protein do I need?"]
 WORKOUT_REQUEST = re.compile(r"\b(?:work ?outs?|exercise (?:plan|routine|program)|training (?:plan|program|split)|"
                              r"gym (?:plan|routine)|fitness plan|strength training|exercise routine)\b", re.I)
 WEIGHT_QUESTION = re.compile(r"how much should i weigh|(?:ideal|healthy|right|normal|target) (?:body )?weight|"
@@ -136,11 +142,20 @@ async def intake(state: NIPState) -> dict:
             not WORKOUT_REQUEST.search(check.text) or bool(MEAL_WORDS.search(check.text))),
         "requested_days": requested_days(check.text),
         "turn_revisions": 0, "turn_tokens": 0, "recommendation": None, "next": None, "objectives": [],
-        "pending_questions": [], "status": "running", "blocked_reason": None,
+        "pending_questions": [], "status": "running", "blocked_reason": None, "small_talk": False,
         "history": [{"role": "user", "content": check.text, "turn": turn}],
     }
     emit({"type": "intake", "flags": check.flags, "blocked": check.blocked, "ts": time.time()})
-    if check.blocked:
+    if not check.blocked and SMALL_TALK.match(check.text):  # "hi", "thanks": answer directly, no agents
+        name = (state.get("profile") or {}).get("name")
+        thanks = re.search(r"thank|thx|cheers", check.text, re.I)
+        text = ("You're welcome! " if thanks else f"Hi{' ' + name if name else ''}! ") + \
+            "I can plan meals from Indian or US food tables, build a workout plan, or check whether a food, " \
+            "supplement or diet fits your health and medicines. What would you like to work on?"
+        rec = Recommendation(headline="", summary=text, disclaimer="", follow_up_questions=SMALL_TALK_SUGGESTIONS)
+        upd |= {"status": "answered", "small_talk": True, "recommendation": rec.model_dump() | {"plan": None},
+                "history": upd["history"] + [{"role": "assistant", "content": text, "turn": turn}]}
+    elif check.blocked:
         text = BLOCKED_RESPONSES[check.reason or "empty"]
         rec = Recommendation(headline="", summary=text, disclaimer="")
         upd |= {"status": "blocked", "blocked_reason": check.reason, "recommendation": rec.model_dump(),
@@ -401,6 +416,11 @@ async def recommendation(state: NIPState) -> dict:
         else:
             plan_block += "\nA workout plan was requested but none passed the workout checks this turn. Say so plainly."
     ctx["plan_shown"] = showable is not None or workout is not None
+    # The "don't present a plan" check matters only when a plan was asked for or attempted this turn;
+    # otherwise an offer like "I can build your meal plan" is not a false claim.
+    ctx["plan_at_stake"] = bool(planner_ran or state.get("plan_requested") or state.get("workout_requested")
+                                or any(r["agent"] == "workout_planning" and r.get("turn") == state.get("turn")
+                                       for r in state.get("agent_runs") or []))
     ctx["workout"], ctx["user_goals"] = workout, state.get("user_goals") or []  # numbers the answer may quote
     ctx["change_failed"] = planner_ran and showable is not None and not new_plan_passed
     evidence = [{"question": e["question"], "answer": e["answer"], "sufficient": e["sufficient"],
@@ -525,8 +545,11 @@ def fallback_answer(health: dict | None, plan: dict | None, evidence: list[dict]
         return Recommendation(headline="I couldn't build a safe plan this time",
                               summary="None of the plans I built passed the safety and target checks. Please try "
                                       "again, or ask for a simpler plan (for example one day, three meals).")
-    return Recommendation(headline="I couldn't finish this one",
-                          summary="I couldn't prepare a reliable answer this time. Please try again or rephrase.")
+    return Recommendation(headline="How can I help?",
+                          summary="I can plan meals from Indian or US food tables, build a workout plan, or check "
+                                  "whether a food, supplement or diet fits your health and medicines. Tell me what "
+                                  "you'd like to work on.",
+                          follow_up_questions=SMALL_TALK_SUGGESTIONS)
 
 
 async def clarify(state: NIPState) -> dict:
@@ -547,8 +570,8 @@ def build_graph(checkpointer=None):
                      ("recommendation", recommendation), ("clarify", clarify)]:
         g.add_node(name, fn)
     g.add_edge(START, "intake")
-    g.add_conditional_edges("intake", lambda s: END if s.get("status") == "blocked" else "supervisor",
-                            ["supervisor", END])
+    g.add_conditional_edges("intake", lambda s: END if s.get("status") == "blocked" or s.get("small_talk")
+                            else "supervisor", ["supervisor", END])
     g.add_conditional_edges("supervisor", route, [*AGENT_NODES, "clarify"])
     for n in ["health_assessment", "nutrition_knowledge", "meal_planning", "workout_planning", "validation"]:
         g.add_edge(n, "supervisor")

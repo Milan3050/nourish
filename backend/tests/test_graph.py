@@ -398,3 +398,21 @@ async def test_passing_rescaled_plan_is_accepted_when_the_planner_runs_out_of_st
     assert final["plans"] and final["validations"][-1]["verdict"] == "PASS" and final["recommendation"]["plan"]
     assert any(e["type"] == "agent_note" for e in events)
     assert final["recommendation"]["key_points"][0].startswith("For your height, a healthy weight is")
+
+
+async def test_greeting_is_answered_without_agents(run):
+    final, events, _ = await run(veg_world(), "hi", profile=VEG_PROFILE)
+    assert final["status"] == "answered" and not final.get("agent_runs")
+    assert final["recommendation"]["summary"].startswith("Hi") and final["recommendation"]["follow_up_questions"]
+
+
+async def test_offering_a_plan_is_not_a_false_plan_claim_when_none_was_asked_for(run):
+    class Offers(World):
+        def recommendation(self, messages):
+            return call("submit_result", headline="Protein", summary="Aim for protein at each meal. "
+                        "I can also build your meal plan if you like.")
+
+    w = Offers(VEG_PROFILE, "IN-L003", "IN-A015", [])
+    w.supervisor_script = ["recommendation"]
+    final, _, _ = await run(w, "how should I spread protein across the day", profile=VEG_PROFILE)
+    assert final["recommendation"]["headline"] == "Protein"  # accepted, not the fallback
