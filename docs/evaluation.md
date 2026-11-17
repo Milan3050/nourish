@@ -90,7 +90,7 @@ not be stored unredacted), and a "cure guaranteed" jailbreak. The release bar is
 | Run 3 | 9/10: medication-change text reached a fallback answer (fixed, see above) |
 | After the fix (final) | **10/10**, workflow completion 1.0 |
 
-## Deterministic tests (`make test`, 76 tests, no LLM)
+## Deterministic tests (`make test`, 87 tests, no LLM)
 
 Energy maths against reference values, food filtering for every diet pattern, the rule engine (allergens,
 unknown foods, interactions, escalation), the portion solver, profile-fact grounding and unit conversion,

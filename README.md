@@ -163,15 +163,22 @@ sequenceDiagram
   |---|---|---|
   | Health Assessment | `update_profile` (unit conversion in code), `assess_energy` | energy came from the tool, or questions list the missing essentials; numbers the user never stated are rejected |
   | Nutrition Knowledge | `search_guidelines` (agentic: rewrites, splits, retries) | every cited passage was retrieved in this run |
-  | Meal Planning | `search_foods`, `scale_portions`, user-data tools | foods exist and are allowed, full days, dish names match ingredients, kcal ±10%, protein in its range |
-  | Workout Planning | `search_exercises`, `check_workout`, user-data tools | the workout rule engine passes (days, session time, weekly volume, contraindications) |
+  | Meal Planning | `search_foods`, `scale_portions`, `read_my_data` | foods exist and are allowed, full days, dish names match ingredients, kcal ±10%, protein in its range |
+  | Workout Planning | `search_exercises`, `check_workout`, `read_my_data` | the workout rule engine passes (days, session time, weekly volume, contraindications) |
   | Validation | `run_safety_rules`, `search_guidelines` | the rule engine ran; the verdict is never more lenient than the rules |
-  | Recommendation | `search_guidelines`, user-data tools | citations were retrieved, every number appears in the context, no banned claims, no claims about plans that don't exist |
+  | Recommendation | `search_guidelines`, `read_my_data` | citations were retrieved, every number appears in the context, no banned claims, no claims about plans that don't exist |
 
 - **Tools compute, agents decide.** The planner picks foods and dishes; `scale_portions` solves the grams
   (a minimum-change solve that hits kcal and protein exactly, plus fat and per-meal energy when the foods
   allow). The workout rule engine computes minutes, weekly sets per muscle and calories (MET × weight × time).
-  BMI and the healthy-weight range come from the energy tool.
+  BMI, the healthy-weight range and a suggested number of meals (more when each meal would be too large to
+  eat comfortably) come from the energy tool; the planner decides, following the user's own words first.
+- **Deterministic repair, never relaxed checks.** When a meal plan or workout fails, code repairs it while
+  keeping the agent's choices: meal plans drop unknown or disallowed foods, pack meals into days and re-solve
+  portions; workouts drop unsafe exercises, fill missing sets and reps, spread sessions over the week and
+  rebalance weekly volume and session time (all numbers from `rules.yaml`). The repaired plan is handed back
+  as feedback and accepted at the end only if it passes the same checks. A step or token budget never skips
+  validation of a plan already built.
 - **Data**: food tables (IFCT 2017: 542 foods; USDA SR28: 7,785) with allergen and animal-source tags; region
   is a filter. 34 vetted guideline summaries (WHO, ICMR-NIN, DGA, NIH, ISSN...) in `data/corpus/`, searched with
   hybrid retrieval (pgvector + Postgres full-text, fused with RRF). 46 curated exercises. All local: no web
@@ -243,7 +250,7 @@ fixing it.
 | `make check-llm` | Smoke-test the provider in `.env` |
 | `make dev` | Run everything for development |
 | `make mcp` / `make api` / `make web` | Run one service |
-| `make test` | 81 deterministic tests (no LLM needed) |
+| `make test` | 87 deterministic tests (no LLM needed) |
 | `make eval-offline` | Retrieval metrics (dense / sparse / hybrid) |
 | `make eval` | Agent scenarios and red team against the configured model |
 | `make docker` | Everything in containers (web app on http://localhost:8080) |
@@ -302,7 +309,7 @@ which this app is not hardened for. Alternatively `make dev WEB_HOST=0.0.0.0` se
 ## Tests and evaluation
 
 ```bash
-make test           # 81 deterministic tests: tools, rules, solver, retrieval, MCP, API, orchestration (scripted LLM)
+make test           # 87 deterministic tests: tools, rules, solver, retrieval, MCP, API, orchestration (scripted LLM)
 make eval-offline   # retrieval: Recall@K, Precision@K, MRR, nDCG for dense / sparse / hybrid
 make eval           # 16 agent scenarios + 10 red-team attacks against the configured model
 cd backend && uv run python -m nip.eval.run --suite agents --judge   # + faithfulness, groundedness, relevance
@@ -334,7 +341,7 @@ recovery); a live session afterwards delivered a validated meal plan and a check
 - **Saved plans**: only plans that passed their checks can be saved (taken from server state, not the client).
 - **Calendar**: schedule saved meal plans and workouts over weeks; tick days off.
 - **Goals**: weight, workout, nutrition and habit goals with progress; shared with the agents.
-- **Agents read your data**: the Recommendation, Meal Planning and Workout agents have read-only tools over your
+- **Agents read your data**: the Recommendation, Meal Planning and Workout agents have one read-only tool (`read_my_data`) over your
   goals, saved plans, calendar and past conversations (scoped to you), so "what's on my calendar this week?" works.
 - **Run history with cost**: every message is recorded with latency, tokens per model, actual cost and a
   hosted-model estimate, plus an agent timeline, the supervisor's decisions (rule overrides highlighted),
@@ -352,6 +359,7 @@ recovery); a live session afterwards delivered a validated meal plan and a check
   built only from validated state; a final output gate on every answer.
 - Safe mode: escalated answers carry no numeric intake targets.
 - Protein as a range with a computed cap (2.2 g/kg or 35% of energy), not a point target.
+- Meal count suggested by the energy tool for the target, decided by the planner, not fixed to the profile.
 - Accessibility: ARIA tabs, labelled form groups, focus management, reduced-motion support, mobile layout.
 - `make check-llm` provider smoke test; one-line switch to hosted models; Tailscale Serve support.
 - Observability: OpenTelemetry traces in Phoenix, Prometheus metrics at `/metrics`, structured logs with PII redaction.
@@ -373,7 +381,7 @@ backend/src/nip/
   observability/ structured logging, OpenTelemetry tracing, token usage and cost
   eval/          metrics, LLM judge, runner
   llm_check.py   provider smoke test (make check-llm)
-backend/tests/   81 deterministic tests (scripted LLM for orchestration)
+backend/tests/   87 deterministic tests (scripted LLM for orchestration)
 frontend/src/    Vite + React + Motion: chat, live agent graph, pages (plans, calendar, goals, runs, profile)
 data/            food tables, guideline corpus, exercise library
 eval/            datasets and committed result summaries

@@ -107,11 +107,15 @@ plan against someone else's allergies. The planner's search only returns foods t
 the planner's (relative change) that meet kcal and protein exactly, and fat and each meal's share of the
 day's energy when the mix allows, solved in closed form (Lagrange) with portions bounded to 0.3-3x of the
 planner's and 5-500 g. When a submission fails only on targets, the acceptance check returns the
-rescaled days as feedback; the agent still submits, and the ±10% check is never relaxed.
+rescaled days as feedback; the agent still submits, and the ±10% check is never relaxed. Workouts get the same
+treatment: a deterministic repair keeps the agent's exercises, fills missing numbers and rebalances weekly volume
+and session time from `rules.yaml`; it is offered as feedback and accepted only if it passes the workout rules.
 
 **Protein is a range.** The energy tool sets a cap of min(2.2 g/kg, 35% of energy) (the target for
 kidney disease); below target −10% or above the cap is rejected. If the planner runs out of steps after
-its own check handed back a rescaled plan that passes every check, that plan is accepted and logged.
+its own check handed back a rescaled plan that passes every check, that plan is accepted and logged; a
+budget never skips validating it. The energy tool also suggests the number of meals for the target (more when
+meals would be too large); the planner decides, following the user's words first.
 
 **Request constraints are code, not prompts.** Intake extracts foods the message rules out ("without
 paneer"), the number of days, and whether a plan, a workout or a healthy-weight answer was requested;
