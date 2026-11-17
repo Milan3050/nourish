@@ -25,6 +25,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from nip.agents.userdata import inventory, set_store
 from nip.api.store import Store
 from nip.config import get_settings
 from nip.domain.models import UserProfile
@@ -72,6 +73,7 @@ async def lifespan(app: FastAPI):
         await S.db.execute(PROFILE_SQL)
         S.store = Store(S.db)
         await S.store.setup()
+        set_store(S.store)
         S.graph = build_graph(saver)
         log.info("api.ready", checkpointer="postgres")
     except Exception as e:
@@ -79,6 +81,7 @@ async def lifespan(app: FastAPI):
             raise
         log.warning("api.db_unavailable_using_memory", error=str(e)[:200])
         S.store = Store()
+        set_store(S.store)
         S.graph = build_graph(InMemorySaver())
     yield
     if S.db:
@@ -212,7 +215,7 @@ def public_state(values: dict) -> dict:
 async def chat_stream(thread_id: str, body: ChatRequest, user: str = Depends(rate_limit)):
     cfg = _thread_cfg(user, thread_id)
     snapshot = await S.graph.aget_state(cfg)
-    inp: dict[str, Any] = {"request": body.message,
+    inp: dict[str, Any] = {"request": body.message, "user_id": user, "user_data_summary": await inventory(user),
                            "user_goals": [{k: g.get(k) for k in ("kind", "title", "target", "unit", "current", "deadline")}
                                           for g in await S.store.list(user, "goal") if g.get("status") != "done"]}
     stored = await load_profile(user)

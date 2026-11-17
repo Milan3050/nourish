@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import date
 from typing import Any
 
 import structlog
@@ -107,6 +108,7 @@ def _ctx(state: NIPState) -> dict:
         "plan": plans[-1] if plans else None,
         "plan_with_totals": vals[-1].get("plan_with_totals") if vals else None,
         "retrieved": {},
+        "user_id": state.get("user_id"),  # scopes the my_* data tools to this user
     }
 
 
@@ -183,10 +185,13 @@ def route(state: NIPState) -> str:
 
 def _common_brief(state: NIPState) -> str:
     goals = state.get("user_goals") or []
-    return (f"<user_message>\n{state['request']}\n</user_message>\n\n"
+    data = state.get("user_data_summary") or {}
+    return (f"Today is {date.today():%A %d %B %Y}.\n"
+            f"<user_message>\n{state['request']}\n</user_message>\n\n"
             f"Supervisor instruction: {state.get('instruction', '')}\n"
             f"Objectives for this request: {state.get('objectives')}\n"
-            + (f"The user's goals (set by the user; numbers are theirs): {_j(goals)}\n" if goals else ""))
+            + (f"The user's goals (set by the user; numbers are theirs): {_j(goals)}\n" if goals else "")
+            + (f"The user's saved data (readable with the my_* tools): {_j(data)}\n" if data else ""))
 
 
 async def health_assessment(state: NIPState) -> dict:

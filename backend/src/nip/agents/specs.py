@@ -15,6 +15,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, field_validator
 
 from nip.agents.base import Emit, GoalAgent
+from nip.agents.userdata import user_data_tools
 from nip.config import get_settings
 from nip.data.taxonomy import alias_terms, allergens_for, meats_for
 from nip.domain.models import RiskFlag, UserProfile, Violation
@@ -286,7 +287,9 @@ You choose the dishes and ingredients; tools do all the arithmetic.
    every day hits the kcal, protein and fat targets. If a day gets advice, change its foods and call again.
 4. Submit the returned days unchanged: submit_result(days=<days from scale_portions>). Vary dishes across days.
 If you are revising a rejected plan, fix every listed violation first. To change part of the user's current
-plan, you may submit only the changed meals: the others are kept."""
+plan, you may submit only the changed meals: the others are kept.
+When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with the
+my_* tools (they only return this user's data) instead of guessing."""
 
 
 def _short(name: str) -> str:
@@ -445,7 +448,7 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         return {**args, "days": out}
 
     tools = [_tool(search_foods, "search_foods", search_foods.__doc__),
-             _tool(scale_portions, "scale_portions", scale_portions.__doc__)]
+             _tool(scale_portions, "scale_portions", scale_portions.__doc__), *user_data_tools(ctx)]
     return GoalAgent("Meal Planning Agent", PLANNER_GOAL, tools, PlanSubmission, check,
                      s.max_planner_steps, emit, prepare=prepare)
 
@@ -482,7 +485,9 @@ WORKOUT_GOAL = """Build a weekly workout plan that fits this person's goal, sche
    their session time.
 4. Call `check_workout` with your plan. It computes minutes, weekly sets per muscle and energy, and lists
    violations. Fix every critical one, then submit the same plan with submit_result.
-Use exercise_id values from search_exercises only."""
+Use exercise_id values from search_exercises only.
+When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with the
+my_* tools (they only return this user's data) instead of guessing."""
 
 
 def workout_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
@@ -509,7 +514,7 @@ def workout_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                 for x in report["violations"] if x["severity"] == "critical"][:12]
 
     tools = [_tool(search_exercises, "search_exercises", search_exercises.__doc__),
-             _tool(check_workout, "check_workout", check_workout.__doc__)]
+             _tool(check_workout, "check_workout", check_workout.__doc__), *user_data_tools(ctx)]
     return GoalAgent("Workout Planning Agent", WORKOUT_GOAL, tools, WorkoutSubmission, check,
                      get_settings().max_planner_steps, emit)
 
@@ -594,7 +599,9 @@ RECOMMENDATION_GOAL = """Write the user-facing answer to their request from the 
 - If the plan was escalated or a safety flag is set, lead with that: give general guidance only and advise
   seeing a doctor or registered dietitian. Never tell the user to change medication, never diagnose.
 - If a plan could not be validated, say so honestly and do not present it.
-- You may call `search_guidelines` if you need a citation for a claim."""
+- You may call `search_guidelines` if you need a citation for a claim.
+When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with the
+my_* tools (they only return this user's data) instead of guessing."""
 
 # Presenting a plan ("here is your plan", "this 1-day meal plan is designed...") when none was validated.
 # Describing a plan as if one exists ("your meal plan includes...", "today's menu has...") when none was
@@ -641,7 +648,7 @@ def known_numbers(ctx: dict) -> set[float]:
             for m in re.findall(r"\d[\d,]*(?:\.\d+)?", x):
                 nums.add(float(m.replace(",", "")))
 
-    for key in ("health", "plan_with_totals", "evidence", "retrieved", "profile", "workout", "user_goals"):
+    for key in ("health", "plan_with_totals", "evidence", "retrieved", "profile", "workout", "user_goals", "user_data"):
         walk(ctx.get(key))
     return nums
 
@@ -699,7 +706,7 @@ def recommendation_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         return errs
 
     return GoalAgent("Recommendation Agent", RECOMMENDATION_GOAL,
-                     [_tool(search_guidelines, "search_guidelines", search_guidelines.__doc__)],
+                     [_tool(search_guidelines, "search_guidelines", search_guidelines.__doc__), *user_data_tools(ctx)],
                      RecommendationSubmission, check, get_settings().max_agent_steps, emit, prepare=prepare)
 
 

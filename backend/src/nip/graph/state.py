@@ -28,6 +28,8 @@ class NIPState(TypedDict, total=False):
     requested_days: int | None  # "1-day plan" -> 1; None when the message does not say
     workout_requested: bool  # the message asks for a workout / training plan
     weight_question: bool  # "how much should I weigh?": the answer leads with the computed healthy range
+    user_id: str | None  # the authenticated user; scopes the agents' read-only data tools
+    user_data_summary: dict  # counts of the user's goals, saved plans, calendar entries, past conversations
     user_goals: list[dict]  # the user's active goals (weight, workout, nutrition, habit), from the goals page
     blocked_reason: str | None
     # durable user context (survives across turns in a thread)
