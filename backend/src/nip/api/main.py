@@ -302,6 +302,7 @@ async def save_run(user: str, thread_id: str, final: dict, events: list[dict], u
         "decisions": [d for d in final.get("decisions") or [] if d.get("turn") == turn],
         "events": events,
     }
+    doc["final_state"] = public_state(final)  # lets the chat reopen this turn exactly as it was shown
     doc["sources"] = run_sources(final, events)
     doc["source_count"] = doc["sources"]["count"]
     saved = await S.store.add(user, "run", doc)
@@ -478,6 +479,44 @@ async def delete_goal(goal_id: str, user: str = Depends(current_user)) -> dict:
     if not await S.store.delete(user, "goal", goal_id):
         raise HTTPException(404)
     return {"ok": True}
+
+
+@app.get("/api/threads")
+async def list_threads(user: str = Depends(current_user)) -> dict:
+    """The user's conversations, newest activity first, built from their recorded runs."""
+    threads: dict[str, dict] = {}
+    for r in sorted(await S.store.list(user, "run", 2000), key=lambda r: r["created_at"]):
+        t = threads.setdefault(r["thread_id"], {"thread_id": r["thread_id"], "title": r["request"][:80],
+                                                "started_at": r["created_at"], "turns": 0, "has_plan": False,
+                                                "has_workout": False})
+        t.update(updated_at=r["created_at"], turns=t["turns"] + 1, last=r.get("headline") or "",
+                 has_plan=t["has_plan"] or r.get("has_plan", False),
+                 has_workout=t["has_workout"] or r.get("has_workout", False))
+    return {"threads": sorted(threads.values(), key=lambda t: t["updated_at"], reverse=True)}
+
+
+@app.get("/api/threads/{thread_id}/turns")
+async def thread_turns(thread_id: str, user: str = Depends(current_user)) -> dict:
+    """Every turn of a conversation (request + the state shown), to reopen it in the chat."""
+    _thread_cfg(user, thread_id)  # validates the id
+    runs = sorted([r for r in await S.store.list(user, "run", 2000) if r["thread_id"] == thread_id],
+                  key=lambda r: r["created_at"])
+    if not runs:
+        raise HTTPException(404)
+    turns = [{"turn": r["turn"], "request": r["request"], "created_at": r["created_at"], "run_id": r["id"],
+              "state": r.get("final_state")} for r in runs]
+    if any(t["state"] is None for t in turns):  # runs recorded before final_state: fall back to thread text
+        snap = await S.graph.aget_state(_thread_cfg(user, thread_id))
+        answers = [h["content"] for h in (snap.values or {}).get("history", []) if h["role"] == "assistant"]
+        if turns[-1]["state"] is None and snap.values:
+            turns[-1]["state"] = public_state(snap.values)  # the checkpoint holds the full latest turn
+        for i, t in enumerate(turns):
+            if t["state"] is None:
+                text = answers[i] if i < len(answers) else ""
+                t["state"] = {"status": "answered", "turn": t["turn"], "recommendation": {
+                    "headline": "", "summary": text, "key_points": [], "tips": [], "citations": [],
+                    "follow_up_questions": [], "disclaimer": ""}, "evidence": [], "health": None}
+    return {"thread_id": thread_id, "turns": turns, "events": runs[-1].get("events", [])}
 
 
 @app.get("/api/threads/{thread_id}")

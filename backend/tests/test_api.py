@@ -77,6 +77,11 @@ async def test_runs_plans_calendar_and_goals(client):
     detail = (await client.get(f"/api/runs/{run['id']}", headers=h)).json()
     assert detail["events"] and [a["agent"] for a in detail["agents"]][-1] == "recommendation"
     assert set(detail["sources"]) == {"cited", "evidence", "searches", "count"}
+    threads = (await client.get("/api/threads", headers=h)).json()["threads"]
+    assert threads[0]["thread_id"] == "t9" and threads[0]["turns"] == 1 and threads[0]["has_plan"]
+    turns = (await client.get("/api/threads/t9/turns", headers=h)).json()
+    assert turns["turns"][0]["request"] == "1-day plan" and turns["turns"][0]["state"]["recommendation"]["plan"]
+    assert turns["events"]
     plan = (await client.post("/api/plans", json={"thread_id": "t9", "kind": "meal"}, headers=h)).json()
     assert plan["title"] == "1-day meal plan" and plan["data"]["days"][0]["totals"]["kcal"] > 0
     assert (await client.post("/api/plans", json={"thread_id": "t9", "kind": "workout"}, headers=h)).status_code == 409
@@ -88,3 +93,4 @@ async def test_runs_plans_calendar_and_goals(client):
     assert done["done"] is True
     other = (await client.post("/api/auth/dev-token", json={"name": "x"})).json()["token"]
     assert (await client.get(f"/api/runs/{run['id']}", headers={"Authorization": f"Bearer {other}"})).status_code == 404
+    assert (await client.get("/api/threads/t9/turns", headers={"Authorization": f"Bearer {other}"})).status_code == 404

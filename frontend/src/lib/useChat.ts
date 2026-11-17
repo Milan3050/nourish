@@ -100,10 +100,31 @@ export function useChat() {
     }
   }, [busy, threadId, onAgent])
 
+  /** Reopen a past conversation: its messages, the last state shown and the last run's activity. */
+  const open = useCallback(async (id: string) => {
+    abort.current?.abort()
+    const t = await api.threadTurns(id)
+    const msgs: ChatMessage[] = []
+    for (const turn of t.turns) {
+      msgs.push({ id: `${turn.run_id}-u`, role: 'user', text: turn.request })
+      msgs.push({ id: `${turn.run_id}-a`, role: 'assistant', text: turn.state?.recommendation?.summary ?? '', state: turn.state })
+    }
+    const view = freshAgents()
+    for (const e of t.events) {
+      const key = e.agent ? AGENT_BY_NAME[e.agent] : undefined
+      if (key && e.type === 'agent_finished')
+        view[key] = { status: e.status === 'done' ? 'done' : 'failed', runs: view[key].runs + 1, ms: e.ms }
+    }
+    for (const k of AGENTS) if (view[k].status === 'idle') view[k] = { ...view[k], status: 'skipped' }
+    view.supervisor = { status: 'done', runs: 1 }
+    setThreadId(id); setMessages(msgs); setEvents(t.events); setFlights([]); setAgents(view)
+    setLatest(t.turns.at(-1)?.state ?? null)
+  }, [])
+
   const reset = () => {
     abort.current?.abort()
     setThreadId(newThread()); setMessages([]); setEvents([]); setFlights([]); setAgents(freshAgents()); setLatest(null)
   }
 
-  return { threadId, messages, events, agents, flights, busy, latest, send, reset }
+  return { threadId, messages, events, agents, flights, busy, latest, send, reset, open }
 }

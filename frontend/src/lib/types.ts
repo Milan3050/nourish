@@ -181,3 +181,12 @@ export const EMPTY_PROFILE: Profile = {
   breastfeeding: false, meals_per_day: 3, budget: 'medium', cuisine_preferences: [],
   training_days_per_week: 3, session_minutes: 45, experience: 'beginner', equipment: ['none'], injuries: [],
 }
+
+export interface ThreadSummary {
+  thread_id: string; title: string; started_at: string; updated_at: string; turns: number
+  last: string; has_plan: boolean; has_workout: boolean
+}
+export interface ThreadTurns {
+  thread_id: string; events: AgentEvent[]
+  turns: { turn: number; request: string; created_at: string; run_id: string; state: FinalState }[]
+}

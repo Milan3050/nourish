@@ -12,6 +12,7 @@ import { EvidencePanel, PlanPanel, TargetsPanel, WorkoutPanel, type GuidelineSea
 import { Onboarding } from './components/Onboarding'
 import { PlanActions } from './components/PlanActions'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { SessionList } from './components/SessionList'
 import { RunsPage } from './pages/RunsPage'
 import { PlansPage } from './pages/PlansPage'
 import { CalendarPage } from './pages/CalendarPage'
@@ -114,7 +115,9 @@ function guidelineSearches(events: AgentEvent[]): GuidelineSearch[] {
 type Pane = 'chat' | 'work'
 type Chat = ReturnType<typeof useChat>
 
-function Workspace({ chat, profile, name }: { chat: Chat; profile: Profile; name: string }) {
+function Workspace({ chat, profile, name, historyOpen, setHistoryOpen }: {
+  chat: Chat; profile: Profile; name: string; historyOpen: boolean; setHistoryOpen: (v: boolean) => void
+}) {
   const [tab, setTab] = useState<Tab>('plan')
   const [pane, setPane] = useState<Pane>('chat')  // small screens show one pane at a time
   const [seenPlan, setSeenPlan] = useState<string | undefined>()
@@ -128,6 +131,15 @@ function Workspace({ chat, profile, name }: { chat: Chat; profile: Profile; name
   const workout = [...chat.messages].reverse().find(m => m.state?.recommendation?.workout)?.state?.recommendation?.workout
   const unseen = !!planMsg && planMsg.id !== seenPlan && pane !== 'work'
   const showPane = (k: Pane) => { setPane(k); if (k === 'work') setSeenPlan(planMsg?.id) }
+  const answers = chat.messages.filter(m => m.role === 'assistant').length
+  const openThread = async (id: string) => {
+    setHistoryOpen(false)
+    if (id !== chat.threadId) { await chat.open(id).catch(() => {}); setPane('chat') }
+  }
+  const sessions = (
+    <SessionList current={chat.threadId} refresh={answers} onOpen={openThread}
+      onNew={() => { chat.reset(); setHistoryOpen(false) }} />
+  )
   useEffect(() => {
     if (s?.recommendation?.plan) setTab('plan')
     else if (s?.recommendation?.workout) setTab('workout')
@@ -148,7 +160,15 @@ function Workspace({ chat, profile, name }: { chat: Chat; profile: Profile; name
           </button>
         ))}
       </nav>
-      <div className="flex-1 min-h-0 grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+      {historyOpen && (
+        <div className="xl:hidden fixed inset-0 z-30 flex" role="dialog" aria-modal="true" aria-label="Conversation history">
+          <div className="w-72 max-w-[85vw] h-full bg-night border-r border-line shadow-2xl">{sessions}</div>
+          <button className="flex-1 bg-black/40" aria-label="Close history" onClick={() => setHistoryOpen(false)} />
+        </div>
+      )}
+      <div className="flex-1 min-h-0 flex">
+      <aside className="hidden xl:block w-64 shrink-0 border-r border-line/70">{sessions}</aside>
+      <div className="flex-1 min-w-0 min-h-0 grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
         <div className={clsx('min-h-0 lg:border-r border-line/70', pane === 'chat' ? 'block' : 'hidden lg:block')}>
           <Chat messages={chat.messages} busy={chat.busy} onSend={chat.send} region={profile.region} name={name}
             onShowWork={() => showPane('work')} />
@@ -196,6 +216,7 @@ function Workspace({ chat, profile, name }: { chat: Chat; profile: Profile; name
           </section>
         </div>
       </div>
+      </div>
     </div>
   )
 }
@@ -217,6 +238,7 @@ function Shell({ profile, name, onEditProfile, onProfile }: {
 }) {
   const chat = useChat()
   const [page, setPage] = useState<Page>(pageFromHash)
+  const [historyOpen, setHistoryOpen] = useState(false)
   useEffect(() => {
     const on = () => setPage(pageFromHash())
     window.addEventListener('hashchange', on)
@@ -244,6 +266,12 @@ function Shell({ profile, name, onEditProfile, onProfile }: {
           </ul>
         </nav>
         {page === 'chat' && (
+          <button onClick={() => setHistoryOpen(true)} aria-label="Conversation history" title="History"
+            className="xl:hidden inline-flex items-center gap-1.5 text-sm rounded-full border border-line px-3 py-1.5 hover:border-mist shrink-0">
+            <History size={14} aria-hidden /><span className="hidden md:inline">History</span>
+          </button>
+        )}
+        {page === 'chat' && (
           <button onClick={chat.reset} aria-label="New conversation" title="New conversation"
             className="inline-flex items-center gap-1.5 text-sm rounded-full border border-line px-3 py-1.5 hover:border-mist shrink-0">
             <Plus size={14} aria-hidden /><span className="hidden md:inline">New conversation</span>
@@ -251,7 +279,7 @@ function Shell({ profile, name, onEditProfile, onProfile }: {
         )}
       </header>
       <div className={clsx('flex-1 min-h-0', page === 'chat' ? 'block' : 'hidden')}>
-        <Workspace chat={chat} profile={profile} name={name} />
+        <Workspace chat={chat} profile={profile} name={name} historyOpen={historyOpen} setHistoryOpen={setHistoryOpen} />
       </div>
       {page !== 'chat' && (
         <main className="flex-1 min-h-0 overflow-y-auto scroll-thin">

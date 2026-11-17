@@ -1,4 +1,4 @@
-import type { AgentEvent, CalendarEntry, FinalState, Goal, Profile, RunDetail, RunSummary, SavedPlan } from './types'
+import type { AgentEvent, CalendarEntry, FinalState, Goal, Profile, RunDetail, RunSummary, SavedPlan, ThreadSummary, ThreadTurns } from './types'
 
 const TOKEN_KEY = 'nip.token'
 const NAME_KEY = 'nip.name'
@@ -36,6 +36,9 @@ export const api = {
   },
   getProfile: () => req<{ profile: Profile | null }>('/api/profile'),
   putProfile: (p: Profile) => req<{ profile: Profile }>('/api/profile', { method: 'PUT', body: JSON.stringify(p) }),
+
+  threads: () => req<{ threads: ThreadSummary[] }>('/api/threads'),
+  threadTurns: (id: string) => req<ThreadTurns>(`/api/threads/${id}/turns`),
 
   runs: () => req<{ runs: RunSummary[]; total: { runs: number; cost_usd: number; reference_cost_usd: number; tokens: number } }>('/api/runs'),
   run: (id: string) => req<RunDetail>(`/api/runs/${id}`),
