@@ -43,3 +43,16 @@ async def test_tools_say_when_no_user_data_is_available():
     userdata.set_store(None)
     tools = {t.name: t for t in userdata.user_data_tools({"user_id": "u1"})}
     assert "not available" in (await tools["my_goals"].ainvoke({}))["error"]
+
+
+async def test_single_read_my_data_tool_covers_every_lookup():
+    store = Store()
+    userdata.set_store(store)
+    try:
+        await store.add("u1", "goal", {"kind": "weight", "title": "Reach 65 kg", "target": 65})
+        tool = userdata.read_my_data_tool({"user_id": "u1"})
+        assert (await tool.ainvoke({"what": "goals"}))["goals"][0]["title"] == "Reach 65 kg"
+        assert (await tool.ainvoke({"what": "calendar"}))["entries"] == []
+        assert "plan_id" in (await tool.ainvoke({"what": "saved_plan"}))["error"]
+    finally:
+        userdata.set_store(None)

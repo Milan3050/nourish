@@ -435,3 +435,17 @@ async def test_offering_a_plan_is_not_a_false_plan_claim_when_none_was_asked_for
     w.supervisor_script = ["recommendation"]
     final, _, _ = await run(w, "how should I spread protein across the day", profile=VEG_PROFILE)
     assert final["recommendation"]["headline"] == "Protein"  # accepted, not the fallback
+
+
+async def test_repaired_workout_is_accepted_when_the_agent_runs_out_of_steps(run):
+    class StubbornWorkout(World):
+        def workout(self, messages):  # keeps submitting one under-volume session, never the repaired plan
+            return call("submit_result", sessions=[{"day": 1, "focus": "Full body", "exercises": [
+                {"exercise_id": "push_up", "sets": 2, "reps": "10", "rest_s": 60}]}])
+
+    w = StubbornWorkout(VEG_PROFILE, "IN-L003", "IN-A015", [])
+    w.supervisor_script = ["health_assessment", "workout_planning", "recommendation"]
+    final, events, _ = await run(w, "workout plan please", profile=VEG_PROFILE)
+    wk = final["recommendation"]["workout"]
+    assert wk and wk["verdict"] == "PASS" and len(wk["sessions"]) == VEG_PROFILE.get("training_days_per_week", 3)
+    assert any(e["type"] == "agent_note" and e["agent"] == "Workout Planning Agent" for e in events)

@@ -153,3 +153,118 @@ def check_workout(profile: dict, workout: dict) -> dict:
               "aerobic_minutes_week": round(aerobic), "kcal_week": round(kcal_week),
               "sets_by_muscle": {k: round(n, 1) for k, n in sorted(sets_by_muscle.items())}}
     return {"verdict": verdict, "violations": v, "totals": totals, "sessions": out_sessions, "goal": goal}
+
+
+def resolve_exercise(ref: str) -> dict | None:
+    """The library exercise an id refers to: exact id, or the closest id/name by word overlap
+    ('romanian deadlift' -> romanian_deadlift_db). Returns None when nothing is close."""
+    lib = library()
+    key = re.sub(r"[^a-z0-9]+", "_", str(ref).lower()).strip("_")
+    if key in lib:
+        return lib[key]
+    words = set(key.split("_")) - {"", "db", "the"}
+    best, score = None, 0.0
+    for e in lib.values():
+        cand = set(re.findall(r"[a-z0-9]+", f"{e['id']} {e['name']}".lower())) - {"db"}
+        s = len(words & cand) / len(words | cand) if words else 0
+        if s > score:
+            best, score = e, s
+    return best if score >= 0.5 else None
+
+
+def _ex_minutes(x: dict, e: dict, r: dict) -> float:
+    if e["type"] == "strength":
+        return int(x.get("sets") or 0) * (r["seconds_per_set"] + float(x.get("rest_s") or 60)) / 60
+    return float(x.get("minutes") or 0)
+
+
+def repair_workout(profile: dict, workout: dict) -> dict:
+    """Complete and rebalance a weekly plan deterministically, keeping the exercises the agent chose.
+
+    Unknown or unsafe exercises are dropped; missing sets, reps, rest and minutes are filled from the rules;
+    sessions are spread over the week (the rules' weekday schedule) to match the user's training days;
+    muscle groups under their weekly range get more sets (or a safe library exercise); sessions over the
+    time limit are trimmed. Every number comes from rules.yaml. The result still has to pass check_workout.
+    """
+    p, r, lib = UserProfile(**profile), rules(), library()
+    goal = training_goal(p)
+    lo, hi = r["rep_ranges"][goal]
+    sessions: list[dict] = []
+    for s in workout.get("sessions") or []:
+        exercises = []
+        for x in s.get("exercises") or []:
+            e = resolve_exercise(x.get("exercise_id", ""))
+            if e is None or not exercise_allowed(e, p)[0]:
+                continue
+            y = {"exercise_id": e["id"]}
+            if e["type"] == "strength":
+                y["sets"] = min(max(int(x.get("sets") or r["default_sets"]), 1), r["max_sets_per_exercise"])
+                y["reps"] = str(x.get("reps") or f"{lo}-{hi}")
+                y["rest_s"] = int(x.get("rest_s") or r["default_rest_s"][goal])
+            else:
+                y["minutes"] = float(x.get("minutes") or r["default_cardio_minutes"])
+            if y["exercise_id"] not in {z["exercise_id"] for z in exercises}:
+                exercises.append(y)
+        if exercises:
+            sessions.append({"focus": s.get("focus") or "Training", "exercises": exercises})
+    n = p.training_days_per_week
+    if not n or not sessions:
+        return {"sessions": [], "progression": workout.get("progression", "")}
+    k = len(sessions)
+    sessions = [json.loads(json.dumps(sessions[i % k])) for i in range(n)]  # trim, or repeat to fill the days
+    for s, day in zip(sessions, r["weekday_schedule"][n], strict=True):
+        s["day"] = day
+
+    limit = p.session_minutes * (1 + r["session_time_tolerance_pct"] / 100)
+
+    def minutes(s: dict) -> float:
+        return r["warmup_minutes"] + sum(_ex_minutes(x, lib[x["exercise_id"]], r) for x in s["exercises"])
+
+    def weekly(m: str) -> float:
+        return sum(x["sets"] * (1 if lib[x["exercise_id"]]["muscles"][0] == m else 0.5)
+                   for s in sessions for x in s["exercises"]
+                   if lib[x["exercise_id"]]["type"] == "strength" and m in lib[x["exercise_id"]]["muscles"])
+
+    band = r["weekly_sets"][p.experience]
+    allowed = [e for e in lib.values() if e["type"] == "strength" and exercise_allowed(e, p)[0]]
+    for m in r["major_muscles"]:
+        options = [e for e in allowed if e["muscles"][0] == m]
+        if not options:
+            continue
+        for _ in range(40):  # raise volume one set (or one exercise) at a time until in range
+            if weekly(m) >= band[0]:
+                break
+            grow = [(s, x) for s in sessions for x in s["exercises"] if lib[x["exercise_id"]]["muscles"][0] == m
+                    and x["sets"] < r["max_sets_per_exercise"] and minutes(s) + _ex_minutes({**x, "sets": 1}, lib[x["exercise_id"]], r) <= limit]
+            if grow:
+                s, x = min(grow, key=lambda sx: minutes(sx[0]))
+                x["sets"] += 1
+                continue
+            used = {x["exercise_id"] for s in sessions for x in s["exercises"]}
+            e = next((o for o in options if o["id"] not in used), options[0])
+            new = {"exercise_id": e["id"], "sets": r["default_sets"], "reps": f"{lo}-{hi}", "rest_s": r["default_rest_s"][goal]}
+            fits = [s for s in sessions if minutes(s) + _ex_minutes(new, e, r) <= limit and e["id"] not in
+                    {x["exercise_id"] for x in s["exercises"]}]
+            if not fits:
+                break
+            min(fits, key=minutes)["exercises"].append(new)
+        while weekly(m) > band[1] * 1.5:  # far above range: trim sets
+            big = [x for s in sessions for x in s["exercises"] if lib[x["exercise_id"]]["muscles"][0] == m
+                   and x["sets"] > r["min_sets_when_trimming"]]
+            if not big:
+                break
+            max(big, key=lambda x: x["sets"])["sets"] -= 1
+    for s in sessions:  # sessions over the time limit: shorten cardio, then remove sets with volume to spare
+        while minutes(s) > limit:
+            cardio = [x for x in s["exercises"] if "minutes" in x and x["minutes"] > r["min_cardio_minutes_when_trimming"]]
+            if cardio:
+                c = max(cardio, key=lambda x: x["minutes"])
+                c["minutes"] = max(r["min_cardio_minutes_when_trimming"], c["minutes"] - 5)
+                continue
+            spare = [x for x in s["exercises"] if "sets" in x and x["sets"] > r["min_sets_when_trimming"]
+                     and weekly(lib[x["exercise_id"]]["muscles"][0]) - 1 >= band[0]]
+            pool = spare or [x for x in s["exercises"] if "sets" in x and x["sets"] > r["min_sets_when_trimming"]]
+            if not pool:
+                break
+            max(pool, key=lambda x: x["sets"])["sets"] -= 1
+    return {"sessions": sessions, "progression": workout.get("progression", "")}

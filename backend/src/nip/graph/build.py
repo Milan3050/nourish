@@ -191,7 +191,7 @@ def _common_brief(state: NIPState) -> str:
             f"Supervisor instruction: {state.get('instruction', '')}\n"
             f"Objectives for this request: {state.get('objectives')}\n"
             + (f"The user's goals (set by the user; numbers are theirs): {_j(goals)}\n" if goals else "")
-            + (f"The user's saved data (readable with the my_* tools): {_j(data)}\n" if data else ""))
+            + (f"The user's saved data (readable with the read_my_data tool): {_j(data)}\n" if data else ""))
 
 
 async def health_assessment(state: NIPState) -> dict:
@@ -323,7 +323,24 @@ async def workout_planning(state: NIPState) -> dict:
              f"\nRisk flags: {[f['code'] for f in h['risk_flags']]}"
              + (f"\nThe user's current workout (change only what the request asks):\n{_j(current[0]['sessions'])}"
                 if current else ""))
-    res = await specs.workout_agent(ctx, emit).run(brief)
+    agent = specs.workout_agent(ctx, emit)
+    res = await agent.run(brief)
+    cand = ctx.get("repaired_candidate")
+    if res.output is None and cand:
+        # Out of steps after the rules handed back a repaired version of the agent's plan (its exercises,
+        # numbers rebalanced). Accept it only if it passes the acceptance check.
+        try:
+            from nip.tools.exercise import check_workout
+
+            sub = specs.WorkoutSubmission.model_validate(cand)
+            report = check_workout(ctx["profile"], sub.model_dump())
+            if report["verdict"] == "PASS":
+                ctx["workout_report"] = report
+                res.output = sub
+                emit({"type": "agent_note", "agent": "Workout Planning Agent", "ts": time.time(),
+                      "text": "accepted the rule-repaired version of the agent's last plan (it passes every check)"})
+        except Exception as e:
+            log.warning("workout.candidate_rejected", error=str(e)[:200])
     upd: dict[str, Any] = {"agent_runs": [_run_record(state, "workout_planning", res)],
                            "turn_tokens": state.get("turn_tokens", 0) + res.tokens}
     if res.output:

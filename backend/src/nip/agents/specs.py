@@ -15,7 +15,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, field_validator
 
 from nip.agents.base import Emit, GoalAgent
-from nip.agents.userdata import user_data_tools
+from nip.agents.userdata import read_my_data_tool
 from nip.config import get_settings
 from nip.data.taxonomy import alias_terms, allergens_for, meats_for
 from nip.domain.models import RiskFlag, UserProfile, Violation
@@ -288,8 +288,8 @@ You choose the dishes and ingredients; tools do all the arithmetic.
 4. Submit the returned days unchanged: submit_result(days=<days from scale_portions>). Vary dishes across days.
 If you are revising a rejected plan, fix every listed violation first. To change part of the user's current
 plan, you may submit only the changed meals: the others are kept.
-When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with the
-my_* tools (they only return this user's data) instead of guessing."""
+When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with
+read_my_data (it only returns this user's data) instead of guessing."""
 
 
 def _short(name: str) -> str:
@@ -357,7 +357,8 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
                 "next": "Submit these days unchanged with submit_result." if ok else
                         "Fix the days with advice (change foods), then call scale_portions again."}
 
-    def check(sub: PlanSubmission) -> list[str]:
+    def rule_check(sub: PlanSubmission) -> list[str]:
+        """The acceptance rules, unchanged by any repair."""
         db = get_food_db()
         profile = UserProfile.model_validate(ctx["profile"])
         blocked = {t for a in [*profile.allergies, *profile.intolerances] for t in alias_terms(a)}
@@ -404,21 +405,50 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
             elif protein > p_max:
                 missed.append(f"day {d.day}: protein_g {protein:.0f} above the {p_max:.0f} g upper limit (vs target)")
             errs += missed
-        only_targets = errs and all("vs target" in e for e in errs)
-        if only_targets:  # the foods are fine: hand back the deterministic rescale as feedback
-            fixed = []
-            for d in sub.days:
-                res = scale_portions_tool([m.model_dump() for m in d.meals], targets["kcal"], targets["protein_g"],
-                                          targets["fat_g"], p_max)
-                if "advice" in res:
-                    errs.append(f"day {d.day}: {res['advice']}")
-                    break
-                fixed.append({"day": d.day, "meals": res["meals"]})
-            else:
-                ctx["rescaled_candidate"] = {"days": fixed, "notes": sub.notes}
-                errs.insert(0, "Rescaled with scale_portions; these days meet the targets. Submit them "
-                               "unchanged: " + json.dumps(fixed))
         return errs[:14]
+
+    def repair(sub: PlanSubmission) -> tuple[dict | None, str | None]:
+        """Keep every valid food the agent chose: drop unknown or disallowed items, pack meals into days by
+        slot order (a day holds each slot once), then solve portions per day. Returns (plan, advice)."""
+        db = get_food_db()
+        profile = UserProfile.model_validate(ctx["profile"])
+        meals = []
+        for d in sub.days:
+            for m in d.meals:
+                items = [it.model_dump() for it in m.items if (f := db.get(it.food_code)) and is_allowed(f, profile)[0]]
+                if items:
+                    meals.append({**m.model_dump(), "items": items})
+        days: list[list[dict]] = []
+        for m in meals:
+            if not days or m["slot"] in {x["slot"] for x in days[-1]}:
+                days.append([])
+            days[-1].append(m)
+        if ctx.get("requested_days"):
+            days = days[:ctx["requested_days"]]
+        fixed = []
+        for n, day in enumerate(days, 1):
+            res = scale_portions_tool(day, targets["kcal"], targets["protein_g"], targets["fat_g"], p_max)
+            if "advice" in res:
+                return None, f"day {n}: {res['advice']}"
+            fixed.append({"day": n, "meals": res["meals"]})
+        return ({"days": fixed, "notes": sub.notes} if fixed else None), None
+
+    def check(sub: PlanSubmission) -> list[str]:
+        errs = rule_check(sub)
+        if not errs:
+            return errs
+        cand, advice = repair(sub)
+        if cand:
+            try:
+                ok = not rule_check(PlanSubmission.model_validate(prepare(json.loads(json.dumps(cand)))))
+            except Exception:
+                ok = False
+            if ok:
+                ctx["rescaled_candidate"] = cand
+                return ["Repaired with your foods (unknown or disallowed items removed, meals packed into days, "
+                        "portions solved by scale_portions); it passes every check. Submit these days unchanged: "
+                        + json.dumps(cand["days"]), *errs][:14]
+        return [*errs, advice][:14] if advice else errs
 
     def prepare(args: dict) -> dict:
         """Edits of an existing plan: meals the submission leaves out are kept from the current plan, so
@@ -448,7 +478,7 @@ def planner_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         return {**args, "days": out}
 
     tools = [_tool(search_foods, "search_foods", search_foods.__doc__),
-             _tool(scale_portions, "scale_portions", scale_portions.__doc__), *user_data_tools(ctx)]
+             _tool(scale_portions, "scale_portions", scale_portions.__doc__), read_my_data_tool(ctx)]
     return GoalAgent("Meal Planning Agent", PLANNER_GOAL, tools, PlanSubmission, check,
                      s.max_planner_steps, emit, prepare=prepare)
 
@@ -486,8 +516,8 @@ WORKOUT_GOAL = """Build a weekly workout plan that fits this person's goal, sche
 4. Call `check_workout` with your plan. It computes minutes, weekly sets per muscle and energy, and lists
    violations. Fix every critical one, then submit the same plan with submit_result.
 Use exercise_id values from search_exercises only.
-When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with the
-my_* tools (they only return this user's data) instead of guessing."""
+When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with
+read_my_data (it only returns this user's data) instead of guessing."""
 
 
 def workout_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
@@ -498,11 +528,27 @@ def workout_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         return await be.call("search_exercises", {"profile": ctx["profile"], "pattern": pattern, "muscle": muscle,
                                                   "query": query})
 
+    def repaired(sessions: list[dict]) -> dict | None:
+        """The deterministic repair of a plan, if it then passes every rule (the agent's exercises kept)."""
+        from nip.tools.exercise import check_workout as rules_check
+        from nip.tools.exercise import repair_workout
+
+        fixed = repair_workout(ctx["profile"], {"sessions": sessions})
+        for sess in fixed["sessions"]:  # keep the agent's session names
+            sess.setdefault("focus", "Training")
+        if fixed["sessions"] and rules_check(ctx["profile"], fixed)["verdict"] == "PASS":
+            ctx["repaired_candidate"] = fixed
+            return fixed
+        return None
+
     async def check_workout(sessions: list[dict]) -> dict:
         """Check a weekly plan [{day, focus, exercises: [{exercise_id, sets, reps, rest_s | minutes}]}]:
-        violations, minutes per session, weekly sets per muscle group, energy (kcal)."""
+        violations, minutes per session, weekly sets per muscle group, energy (kcal). If it fails, also
+        returns a repaired version (your exercises, numbers rebalanced) that passes, to submit."""
         res = await be.call("check_workout", {"profile": ctx["profile"], "workout": {"sessions": sessions}})
         ctx["workout_report"] = res
+        if res.get("verdict") != "PASS" and (fix := repaired(sessions)):
+            res = {**res, "repaired_plan_that_passes": fix["sessions"]}
         return res
 
     def check(sub: WorkoutSubmission) -> list[str]:
@@ -510,11 +556,15 @@ def workout_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
 
         report = rules_check(ctx["profile"], sub.model_dump())
         ctx["workout_report"] = report
-        return [f"{x['location'] + ': ' if x.get('location') else ''}{x['message']}"
+        errs = [f"{x['location'] + ': ' if x.get('location') else ''}{x['message']}"
                 for x in report["violations"] if x["severity"] == "critical"][:12]
+        if errs and (fix := repaired(sub.model_dump()["sessions"])):
+            errs.insert(0, "Repaired with your exercises (numbers rebalanced by the rules); it passes every check. "
+                           "Submit these sessions unchanged: " + json.dumps(fix["sessions"]))
+        return errs
 
     tools = [_tool(search_exercises, "search_exercises", search_exercises.__doc__),
-             _tool(check_workout, "check_workout", check_workout.__doc__), *user_data_tools(ctx)]
+             _tool(check_workout, "check_workout", check_workout.__doc__), read_my_data_tool(ctx)]
     return GoalAgent("Workout Planning Agent", WORKOUT_GOAL, tools, WorkoutSubmission, check,
                      get_settings().max_planner_steps, emit)
 
@@ -600,8 +650,8 @@ RECOMMENDATION_GOAL = """Write the user-facing answer to their request from the 
   seeing a doctor or registered dietitian. Never tell the user to change medication, never diagnose.
 - If a plan could not be validated, say so honestly and do not present it.
 - You may call `search_guidelines` if you need a citation for a claim.
-When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with the
-my_* tools (they only return this user's data) instead of guessing."""
+When the request refers to the user's saved plans, calendar, goals or earlier conversations, read them with
+read_my_data (it only returns this user's data) instead of guessing."""
 
 # Presenting a plan ("here is your plan", "this 1-day meal plan is designed...") when none was validated.
 # Describing a plan as if one exists ("your meal plan includes...", "today's menu has...") when none was
@@ -706,7 +756,7 @@ def recommendation_agent(ctx: dict, emit: Emit | None = None) -> GoalAgent:
         return errs
 
     return GoalAgent("Recommendation Agent", RECOMMENDATION_GOAL,
-                     [_tool(search_guidelines, "search_guidelines", search_guidelines.__doc__), *user_data_tools(ctx)],
+                     [_tool(search_guidelines, "search_guidelines", search_guidelines.__doc__), read_my_data_tool(ctx)],
                      RecommendationSubmission, check, get_settings().max_agent_steps, emit, prepare=prepare)
 
 

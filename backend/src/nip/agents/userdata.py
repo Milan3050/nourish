@@ -9,7 +9,7 @@ Recommendation agent's number check accepts figures quoted from it.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.tools import StructuredTool
 
@@ -113,3 +113,23 @@ def user_data_tools(ctx: dict) -> list[StructuredTool]:
 
     return [StructuredTool.from_function(coroutine=f, name=f.__name__, description=f.__doc__)
             for f in (my_goals, my_saved_plans, my_saved_plan, my_calendar, my_past_conversations)]
+
+
+def read_my_data_tool(ctx: dict) -> StructuredTool:
+    """All of the user-data lookups behind one tool, so a small model has one choice to make, not five."""
+    tools = {t.name: t for t in user_data_tools(ctx)}
+
+    async def read_my_data(what: Literal["goals", "saved_plans", "saved_plan", "calendar", "past_conversations"],
+                           plan_id: str | None = None, start_date: str | None = None,
+                           end_date: str | None = None) -> dict:
+        """Read the user's own saved data: what='goals' | 'saved_plans' | 'saved_plan' (needs plan_id) |
+        'calendar' (optional start_date/end_date, YYYY-MM-DD; default next 7 days) | 'past_conversations'."""
+        if what == "saved_plan":
+            if not plan_id:
+                return {"error": "saved_plan needs plan_id (get ids with what='saved_plans')"}
+            return await tools["my_saved_plan"].ainvoke({"plan_id": plan_id})
+        if what == "calendar":
+            return await tools["my_calendar"].ainvoke({"start_date": start_date, "end_date": end_date})
+        return await tools[f"my_{what}"].ainvoke({})
+
+    return StructuredTool.from_function(coroutine=read_my_data, name="read_my_data", description=read_my_data.__doc__)

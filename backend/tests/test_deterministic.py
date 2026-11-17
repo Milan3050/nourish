@@ -224,7 +224,7 @@ def test_planner_check_rejects_meat_dish_names_and_returns_rescaled_days():
         {"slot": "dinner", "name": "Paneer roti", "items": [{"food_code": "IN-L003", "grams": 60},
                                                           {"food_code": "IN-A019", "grams": 60}]}]}
     errs = agent.check(PlanSubmission(days=[day]))
-    assert any("vs target" in e for e in errs) and errs[0].startswith("Rescaled")
+    assert any("vs target" in e for e in errs) and errs[0].startswith("Repaired")
     fixed = _json.loads(errs[0].split("unchanged: ", 1)[1])
     assert agent.check(PlanSubmission(days=fixed)) == []  # the handed-back days pass the unchanged check
     named = {**day, "meals": [{**day["meals"][0], "name": "Chicken curry with rice"}, *day["meals"][1:]]}
@@ -376,3 +376,42 @@ def test_healthy_weight_range_is_computed_per_region():
     h_in = assess(base_profile(height_cm=180, weight_kg=60, region=Region.IN))
     h_us = assess(base_profile(height_cm=180, weight_kg=60, region=Region.US))
     assert h_in.bmi == 18.5 and h_in.healthy_weight_kg == [59.9, 74.2] and h_us.healthy_weight_kg == [59.9, 80.7]
+
+
+def test_workout_repair_keeps_exercises_and_passes_the_rules():
+    from nip.tools.exercise import check_workout, repair_workout, resolve_exercise
+
+    assert resolve_exercise("goblet squat")["id"] == "goblet_squat" and resolve_exercise("IN-A027") is None
+    prof = base_profile(goal=Goal.gain_muscle, weight_kg=60).model_dump(mode="json") | {
+        "training_days_per_week": 3, "session_minutes": 45, "experience": "beginner", "equipment": ["none", "dumbbells"]}
+    broken = {"sessions": [
+        {"day": 1, "focus": "Upper", "exercises": [{"exercise_id": "push_up", "sets": 0}, {"exercise_id": "plank"}]},
+        {"day": 1, "focus": "Lower", "exercises": [{"exercise_id": "goblet squat", "sets": 3, "reps": "10"},
+                                                   {"exercise_id": "made_up_move"}]}]}
+    assert check_workout(prof, broken)["verdict"] == "REJECT"
+    fixed = repair_workout(prof, broken)
+    assert check_workout(prof, fixed)["verdict"] == "PASS"
+    assert [s["day"] for s in fixed["sessions"]] == [1, 3, 5]
+    used = {x["exercise_id"] for s in fixed["sessions"] for x in s["exercises"]}
+    assert {"push_up", "plank", "goblet_squat"} <= used and "made_up_move" not in used
+
+
+def test_meal_repair_drops_bad_items_and_packs_one_meal_days():
+    from nip.agents.specs import PlanSubmission, planner_agent
+
+    profile = base_profile(diet_pattern=DietPattern.vegetarian)
+    agent = planner_agent({"profile": profile.model_dump(mode="json"), "health": assess(profile).model_dump()})
+    one_meal_days = [
+        {"day": 1, "meals": [{"slot": "breakfast", "name": "Poha with milk", "items": [
+            {"food_code": "IN-A011", "grams": 60}, {"food_code": "IN-L002", "grams": 200}, {"food_code": "IN-ZZZ9", "grams": 50}]}]},
+        {"day": 2, "meals": [{"slot": "lunch", "name": "Dal rice", "items": [
+            {"food_code": "IN-B010", "grams": 80}, {"food_code": "IN-A015", "grams": 100}]}]},
+        {"day": 3, "meals": [{"slot": "dinner", "name": "Paneer roti", "items": [
+            {"food_code": "IN-L003", "grams": 80}, {"food_code": "IN-A019", "grams": 80}]}]}]
+    errs = agent.check(PlanSubmission(days=one_meal_days))
+    assert errs[0].startswith("Repaired")
+    import json as _json
+    days = _json.loads(errs[0].split("unchanged: ", 1)[1])
+    assert len(days) == 1 and [m["slot"] for m in days[0]["meals"]] == ["breakfast", "lunch", "dinner"]
+    assert all(i["food_code"] != "IN-ZZZ9" for m in days[0]["meals"] for i in m["items"])
+    assert agent.check(PlanSubmission(days=days)) == []
