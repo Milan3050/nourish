@@ -151,7 +151,7 @@ RTX 5080 16 GB); on CPU it works but is slow.
 ### First time
 
 ```bash
-git clone <this repo> && cd nutrition-intelligence-platform
+git clone https://github.com/Milan3050/nourish.git && cd nourish
 make ollama-models   # pulls qwen2.5:7b-instruct + nomic-embed-text, creates a 32k-context variant
 make setup           # Python (uv) + Node dependencies; creates .env from .env.example
 make infra           # Postgres (pgvector) + Phoenix tracing UI in Docker
