@@ -32,7 +32,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 ::selection { background: color-mix(in oklab, var(--color-turmeric) 40%, transparent); }
-:focus-visible { outline: 2px solid var(--color-turmeric); outline-offset: 2px; border-radius: 6px; }
+/* Keyboard focus ring for buttons and links. Text fields show focus with their own border instead (they
+   match :focus-visible on click too, which drew a second box around the field). */
+:focus-visible { outline: 2px solid var(--color-turmeric); outline-offset: 2px; }
+:is(input, textarea, select):focus-visible { outline: none; border-color: var(--color-turmeric); }
 
 .grain::before {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .5;
