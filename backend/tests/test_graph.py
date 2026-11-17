@@ -207,9 +207,12 @@ async def test_escalation_blocks_planning(run):
 async def test_question_only_skips_planner(run):
     w = veg_world()
     w.supervisor_script = ["nutrition_knowledge", "recommendation"]
-    final, _, _ = await run(w, "Is creatine safe for me?")
+    final, _, _g = await run(w, "Is creatine safe for me?")
     assert [r["agent"] for r in final["agent_runs"]] == ["nutrition_knowledge", "recommendation"]
     assert final["evidence"][0]["citations"][0]["chunk_id"]
+    from nip.api.main import run_sources
+    src = run_sources(final, _)
+    assert src["searches"][0]["query"] and src["searches"][0]["found"] and src["count"] >= 1
 
 
 async def test_injection_only_message_is_blocked(run):

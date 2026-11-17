@@ -118,9 +118,16 @@ export interface Usage {
 export interface RunSummary {
   id: string; created_at: string; thread_id: string; turn: number; request: string; status: string; seconds: number
   model: string; usage: Usage; agents: AgentRun[]; headline: string; has_plan: boolean; has_workout: boolean
+  source_count?: number
+}
+export interface RunSources {
+  cited: Citation[]
+  evidence: { question: string; answer: string; sufficient: boolean; citations: Citation[] }[]
+  searches: { agent: string; query: string; found: string[] }[]
+  count: number
 }
 export interface RunDetail extends RunSummary {
-  started_at: number; events: AgentEvent[]
+  started_at: number; events: AgentEvent[]; sources?: RunSources
   decisions: { step: number; proposed: string; next: string; reason: string; override: string | null; ms: number }[]
 }
 export interface SavedPlan {

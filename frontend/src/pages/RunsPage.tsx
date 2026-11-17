@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Coins, Cpu, Timer } from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '../lib/api'
-import { AGENT_BY_NAME, AGENT_LABEL, type AgentEvent, type AgentKey, type RunDetail } from '../lib/types'
-import { Empty } from '../components/Panels'
+import { AGENT_BY_NAME, AGENT_LABEL, type AgentEvent, type AgentKey, type RunDetail, type RunSources } from '../lib/types'
+import { CitationItem, Empty } from '../components/Panels'
 
 const usd = (n?: number | null) => (n == null ? '-' : n === 0 ? '$0.00' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`)
 const num = (n: number) => n.toLocaleString()
@@ -65,6 +65,49 @@ function eventLine(e: AgentEvent): string {
   }
 }
 
+/** What the agents looked up in the local guideline library during the run. */
+function Sources({ src }: { src?: RunSources }) {
+  const [open, setOpen] = useState<string | null>(null)
+  if (!src || (!src.cited.length && !src.searches.length && !src.evidence.length))
+    return <p className="text-sm text-dim">No guideline searches in this run{src ? '' : ' (recorded before sources were tracked)'}.</p>
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-dim m-0">From the project's vetted guideline library, searched locally (no web search).</p>
+      {src.cited.length > 0 && (
+        <div className="space-y-1.5">
+          <h4 className="text-sm font-medium m-0">Cited in the answer</h4>
+          <ul className="space-y-1.5 list-none p-0">{src.cited.map(c => <CitationItem key={c.chunk_id} c={c} open={open} setOpen={setOpen} />)}</ul>
+        </div>
+      )}
+      {src.searches.length > 0 && (
+        <div className="space-y-1">
+          <h4 className="text-sm font-medium m-0">Searches ({src.searches.length})</h4>
+          <ul className="space-y-1 list-none p-0 text-sm">
+            {src.searches.map((q, i) => (
+              <li key={i} className="text-mist">
+                <span className="text-dim">{agentLabel(q.agent)}:</span> “{q.query}”
+                <span className="block text-xs text-dim pl-3">{q.found.length ? q.found.join(' · ') : 'no passages returned'}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {src.evidence.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium m-0">Knowledge agent answers</h4>
+          {src.evidence.map(e => (
+            <div key={e.question} className="rounded-xl border border-line bg-plum p-3 text-sm">
+              <p className="m-0 font-medium">{e.question}</p>
+              <p className="m-0 mt-1 text-mist">{e.answer}</p>
+              <p className="m-0 mt-1 text-xs text-dim">{e.citations.map(c => c.title).join(' · ')}{!e.sufficient && ' · the guidelines do not fully answer this'}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RunView({ id, onBack }: { id: string; onBack: () => void }) {
   const [run, setRun] = useState<RunDetail | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -90,6 +133,10 @@ function RunView({ id, onBack }: { id: string; onBack: () => void }) {
       <section>
         <h3 className="font-display text-lg font-semibold mb-3">Agent timeline</h3>
         <Timeline events={run.events} />
+      </section>
+      <section>
+        <h3 className="font-display text-lg font-semibold mb-3">Sources <span className="text-sm text-dim font-normal">({run.sources?.count ?? 0} cited)</span></h3>
+        <Sources src={run.sources} />
       </section>
       <section>
         <h3 className="font-display text-lg font-semibold mb-3">Supervisor decisions</h3>
@@ -179,6 +226,7 @@ export function RunsPage() {
                   <span className={clsx('text-xs rounded-full border px-2 py-0.5', STATUS[r.status] ?? 'text-mist border-line')}>{r.status}</span>
                   {r.has_plan && <span className="ml-1 text-xs text-leaf">meal plan</span>}
                   {r.has_workout && <span className="ml-1 text-xs text-leaf">workout</span>}
+                  {!!r.source_count && <span className="block text-xs text-dim mt-0.5">{r.source_count} source{r.source_count > 1 ? 's' : ''} cited</span>}
                 </td>
                 <td className="pr-3 text-xs text-mist">{r.agents.map(a => agentLabel(a.agent)).join(' › ')}</td>
                 <td className="pr-3 text-right tabular-nums">{r.seconds.toFixed(0)} s</td>

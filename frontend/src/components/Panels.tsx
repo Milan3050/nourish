@@ -146,7 +146,7 @@ export function TargetsPanel({ health }: { health: Health | null }) {
 
 export interface GuidelineSearch { agent: string; query: string; found: string }
 
-function CitationItem({ c, open, setOpen }: { c: Citation; open: string | null; setOpen: (id: string | null) => void }) {
+export function CitationItem({ c, open, setOpen }: { c: Citation; open: string | null; setOpen: (id: string | null) => void }) {
   return (
     <motion.li layout className="rounded-xl border border-line bg-plum text-sm">
       <button className="w-full text-left px-3 py-2 flex items-start gap-2" aria-expanded={open === c.chunk_id}

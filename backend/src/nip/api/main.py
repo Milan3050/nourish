@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -264,7 +265,28 @@ async def chat_stream(thread_id: str, body: ChatRequest, user: str = Depends(rat
 # ------------------------------------------------------------------ runs -------------------------------
 
 RUN_FIELDS = ("id", "created_at", "thread_id", "turn", "request", "status", "seconds", "model", "usage", "agents",
-              "headline", "has_plan", "has_workout")
+              "headline", "has_plan", "has_workout", "source_count")
+
+
+def run_sources(final: dict, events: list[dict]) -> dict:
+    """What the agents looked up in the guideline library this turn: passages cited in the answer, the
+    Knowledge agent's evidence, and every search with the titles it returned."""
+    rec = final.get("recommendation") or {}
+    turn = final.get("turn")
+    cited = list({c["chunk_id"]: {k: c.get(k) for k in ("chunk_id", "title", "source", "url", "snippet")}
+                  for c in rec.get("citations") or []}.values())
+    evidence = [{"question": e["question"], "answer": e["answer"], "sufficient": e.get("sufficient"),
+                 "citations": [{k: c.get(k) for k in ("chunk_id", "title", "source", "url")} for c in e["citations"]]}
+                for e in final.get("evidence") or [] if e.get("turn") == turn]
+    searches: list[dict] = []
+    for e in events:
+        if e.get("type") == "tool_call" and e.get("tool") == "search_guidelines":
+            args = e.get("args") or {}
+            searches.append({"agent": e.get("agent"), "query": args.get("query") or args.get("_preview", ""), "found": []})
+        elif e.get("type") == "tool_result" and e.get("tool") == "search_guidelines" and searches:
+            searches[-1]["found"] = e.get("titles") or re.findall(r'"title": "([^"]+)"', e.get("preview") or "")[:5]
+    ids = {c["chunk_id"] for c in cited} | {c["chunk_id"] for ev in evidence for c in ev["citations"]}
+    return {"cited": cited, "evidence": evidence, "searches": searches, "count": len(ids)}
 
 
 async def save_run(user: str, thread_id: str, final: dict, events: list[dict], usage: UsageTracker,
@@ -280,6 +302,8 @@ async def save_run(user: str, thread_id: str, final: dict, events: list[dict], u
         "decisions": [d for d in final.get("decisions") or [] if d.get("turn") == turn],
         "events": events,
     }
+    doc["sources"] = run_sources(final, events)
+    doc["source_count"] = doc["sources"]["count"]
     saved = await S.store.add(user, "run", doc)
     return {k: saved.get(k) for k in RUN_FIELDS}
 

@@ -417,7 +417,7 @@ async def recommendation(state: NIPState) -> dict:
     if res.output:
         o = res.output
         pool = {**{c["chunk_id"]: c for e in ctx["evidence"] for c in e["citations"]}, **ctx["retrieved"]}
-        cits = [Citation(**pool[c]) for c in o.cited_chunk_ids if c in pool]
+        cits = [Citation(**pool[c]) for c in dict.fromkeys(o.cited_chunk_ids) if c in pool]
         rec = Recommendation(headline=o.headline, summary=o.summary, key_points=distinct_points(o.summary, o.key_points),
                              tips=distinct_points(o.summary, o.tips), citations=cits,
                              follow_up_questions=o.follow_up_questions)
@@ -496,7 +496,7 @@ def fallback_answer(health: dict | None, plan: dict | None, evidence: list[dict]
     Built only from validated state (risk flags, the validated plan's computed totals, cited evidence),
     so it carries no model-written claims."""
     usable = [e for e in evidence if e.get("sufficient") and not check_output(e["answer"])]
-    cites = [Citation(**c) for e in usable for c in e["citations"]]
+    cites = list({c["chunk_id"]: Citation(**c) for e in usable for c in e["citations"]}.values())
     answers = [e["answer"] for e in usable]
     if health and health.get("escalation_required"):
         answers = [a for a in answers if not specs.INTAKE_TARGET.search(a)]  # safe mode: no numeric targets

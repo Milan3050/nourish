@@ -76,6 +76,7 @@ async def test_runs_plans_calendar_and_goals(client):
     assert runs["total"]["runs"] == 1
     detail = (await client.get(f"/api/runs/{run['id']}", headers=h)).json()
     assert detail["events"] and [a["agent"] for a in detail["agents"]][-1] == "recommendation"
+    assert set(detail["sources"]) == {"cited", "evidence", "searches", "count"}
     plan = (await client.post("/api/plans", json={"thread_id": "t9", "kind": "meal"}, headers=h)).json()
     assert plan["title"] == "1-day meal plan" and plan["data"]["days"][0]["totals"]["kcal"] > 0
     assert (await client.post("/api/plans", json={"thread_id": "t9", "kind": "workout"}, headers=h)).status_code == 409

@@ -154,7 +154,7 @@ class GoalAgent:
                     except Exception as e:  # tool errors go back to the agent as observations
                         content = json.dumps({"error": str(e)[:500]})
                 ms = round((time.perf_counter() - t0) * 1000, 1)
-                self._event("tool_result", tool=name, ms=ms, preview=content[:240])
+                self._event("tool_result", tool=name, ms=ms, preview=content[:240], **_titles(content))
                 feedback += [f"{name}: {a}" for a in dict.fromkeys(ADVICE.findall(content))][:3]
                 if len(content) > MAX_TOOL_RESULT_CHARS:
                     content = content[:MAX_TOOL_RESULT_CHARS] + '... [truncated]'
@@ -221,6 +221,17 @@ class GoalAgent:
         log.info("agent.finished", agent=self.name, status=status, steps=final["steps"], ms=ms,
                  tokens=final["tokens"])
         return AgentResult(self.name, status, output, final["steps"], final["tokens"], ms, err, final["messages"])
+
+
+def _titles(content: str) -> dict:
+    """Titles of guideline passages in a search result, so logs show everything a search returned."""
+    if '"title"' not in content:
+        return {}
+    try:
+        res = json.loads(content).get("results")
+        return {"titles": [r["title"] for r in res if isinstance(r, dict) and "title" in r][:8]} if isinstance(res, list) else {}
+    except (ValueError, AttributeError):
+        return {}
 
 
 def _call_key(name: str, args: dict) -> str:
