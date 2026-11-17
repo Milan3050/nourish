@@ -28,10 +28,10 @@ services:
     build: { context: ., dockerfile: backend/Dockerfile }
     command: ["python", "-m", "nip.mcp_server.server"]
     environment:
+      NIP_IN_DOCKER: "1"   # local endpoints (localhost) are reached on the host
       NIP_MCP_HOST: 0.0.0.0
       NIP_MCP_ALLOWED_HOSTS: "mcp:*,localhost:*,127.0.0.1:*"  # Host headers accepted (DNS-rebinding guard)
       NIP_DATABASE_URL: postgresql://nip:nip@db:5432/nip
-      NIP_EMBEDDINGS_BASE_URL: http://host.docker.internal:11434
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on: { db: { condition: service_healthy } }
 
@@ -43,8 +43,7 @@ services:
       NIP_DATABASE_URL: postgresql://nip:nip@db:5432/nip
       NIP_TOOL_TRANSPORT: mcp
       NIP_MCP_SERVER_URL: http://mcp:8765/mcp
-      NIP_LLM_BASE_URL: ${NIP_LLM_BASE_URL_DOCKER:-http://host.docker.internal:11434/v1}
-      NIP_EMBEDDINGS_BASE_URL: http://host.docker.internal:11434
+      NIP_IN_DOCKER: "1"   # the LLM URL comes from .env; only localhost URLs are rewritten to the host
       NIP_OTEL_ENDPOINT: http://phoenix:6006/v1/traces
       NIP_CORS_ORIGINS: '["http://localhost:8080","http://localhost:5173"]'
     ports: ["${NIP_API_HOST_PORT:-8000}:8000"]

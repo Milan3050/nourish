@@ -38,6 +38,36 @@ containers reach Ollama on the host through `host.docker.internal`, so Ollama mu
 bridge, not only on 127.0.0.1 (on Linux: `OLLAMA_HOST=0.0.0.0:11434` in the Ollama service, then restart
 it). Set `NIP_API_HOST_PORT` if 8000 is taken on the host.
 
+## Using a hosted model (OpenAI, Claude, Gemini, Groq)
+
+Only `.env` changes. Comment out the three local `NIP_LLM_*` lines, uncomment one provider block from
+`.env.example` (paste the API key), then check it before starting:
+
+```bash
+make check-llm    # plain call, structured routing, tool calling, embeddings: prints a hint for any failure
+make dev          # restart so the API picks up the new settings
+```
+
+Typed output switches automatically (`json_schema` for Ollama, `function_calling` for hosted APIs). For
+reasoning models that only accept their default temperature, set `NIP_LLM_TEMPERATURE=` (empty).
+Embeddings and the guideline index stay on local Ollama, so no re-indexing is needed. To see real cost per
+run, add the model's price to `NIP_PRICING`. The generous local budgets in `.env` work as caps for hosted
+models too; lower `NIP_MAX_REQUEST_TOKENS` if you want a tighter spend limit.
+
+## Opening it from another device (Tailscale)
+
+With the app running (`make dev`), publish the web app to your tailnet with Tailscale Serve:
+
+```bash
+tailscale serve --bg 5173     # https://<machine>.<tailnet>.ts.net, visible only to your tailnet
+tailscale serve reset         # stop serving
+```
+
+The web dev server proxies `/api` to the API, so this one port is all you need. Serve is tailnet-only;
+Tailscale Funnel would make it public, which this app is not hardened for. Without Serve, `make dev
+WEB_HOST=0.0.0.0` serves `http://<tailnet-ip>:5173` directly (also on your LAN). For the Docker stack,
+serve port 8080 instead.
+
 ## Tests and evaluation
 
 ```bash

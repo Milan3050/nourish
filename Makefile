@@ -1,10 +1,13 @@
 # Nutrition Intelligence Platform - developer commands
-.PHONY: setup ollama-models pdf infra index data retag mcp api web dev test lint eval eval-offline docker clean-db
+.PHONY: setup ollama-models check-llm pdf infra index data retag mcp api web dev test lint eval eval-offline docker clean-db
 
 BACKEND := cd backend &&
 # API port; e.g. `make dev API_PORT=8010` if 8000 is taken (the web dev proxy follows it)
 API_PORT ?= 8000
 export API_PORT
+# Web dev server bind address; 0.0.0.0 to reach it on the tailnet IP / LAN (tailscale serve works without it)
+WEB_HOST ?= 127.0.0.1
+export WEB_HOST
 
 setup:            ## install backend + frontend dependencies
 	$(BACKEND) uv sync --extra dev
@@ -17,6 +20,9 @@ ollama-models:    ## pull the base models and create the larger-context variants
 	ollama create nip-qwen2.5:7b-32k -f ollama/qwen2.5-7b-32k.Modelfile
 	@ollama list | grep -q '^llama3.1:latest' && ollama create nip-llama3.1:8b-12k -f ollama/llama3.1-8b-12k.Modelfile || \
 	  echo "optional eval judge: ollama pull llama3.1 && make ollama-models"
+
+check-llm:        ## check the provider in .env: plain call, structured routing, tool calling, embeddings
+	$(BACKEND) uv run python -m nip.llm_check
 
 infra:            ## start Postgres (pgvector) and Phoenix tracing
 	docker compose up -d db phoenix
@@ -38,7 +44,7 @@ mcp:              ## MCP tool server on :8765
 api:              ## API on :8000 with reload
 	$(BACKEND) uv run uvicorn nip.api.main:app --reload --port $(API_PORT)
 
-web:              ## frontend on :5173
+web:              ## frontend on :5173 (WEB_HOST=0.0.0.0 to serve the tailnet IP / LAN too)
 	cd frontend && npm run dev
 
 dev:              ## infra + MCP + API + web together (Ctrl-C stops all)

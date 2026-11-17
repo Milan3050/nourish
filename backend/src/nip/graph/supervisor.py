@@ -93,7 +93,7 @@ def summarise_state(state: dict) -> dict:
 
 
 async def llm_decide(state: dict) -> Decision | None:
-    model = get_chat_model("router").with_structured_output(Decision, method=get_settings().llm_structured_method)
+    model = get_chat_model("router").with_structured_output(Decision, method=get_settings().structured_method)
     history = (state.get("history") or [])[-6:]
     msg = (f"<user_message>\n{state['request']}\n</user_message>\n\n"
            f"Recent conversation: {json.dumps(history)[:2000]}\n\n"

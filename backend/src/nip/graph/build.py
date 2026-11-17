@@ -554,7 +554,7 @@ async def respond(state: NIPState) -> dict:
     history = [f"{h['role']}: {h['content'][:200]}" for h in (state.get("history") or [])[-5:-1]]
     text, suggestions = "", SMALL_TALK_SUGGESTIONS
     try:
-        model = get_chat_model("router").with_structured_output(specs.Reply, method=get_settings().llm_structured_method)
+        model = get_chat_model("router").with_structured_output(specs.Reply, method=get_settings().structured_method)
         out = await model.ainvoke([SystemMessage(specs.REPLY_PROMPT), HumanMessage(
             f"User's name: {name or 'unknown'}\nRecent conversation: {history}\n"
             f"<user_message>\n{state['request']}\n</user_message>")])

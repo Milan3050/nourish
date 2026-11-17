@@ -25,11 +25,13 @@ def get_chat_model(role: Role = "agent") -> BaseChatModel:
 
     s = get_settings()
     model = {"agent": s.llm_model, "router": s.router_model, "judge": s.judge_model}[role]
+    # Temperature is omitted entirely when unset, for models that reject anything but their default.
+    temp = None if s.llm_temperature is None else (0.0 if role in ("router", "judge") else s.llm_temperature)
     return ChatOpenAI(
         model=model,
         base_url=s.llm_base_url,
         api_key=s.llm_api_key,
-        temperature=0.0 if role in ("router", "judge") else s.llm_temperature,
         timeout=s.llm_timeout_s,
         max_retries=s.llm_max_retries,
+        **({"temperature": temp} if temp is not None else {}),
     )
