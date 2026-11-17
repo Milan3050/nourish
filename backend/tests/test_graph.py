@@ -117,6 +117,11 @@ class World:
         return call("submit_result", sessions=[{"day": d, "focus": "Full body", "exercises": ex} for d in (1, 3, 5)],
                     progression="Add reps each week.")
 
+    reply_text = "Doing well, thanks for asking! Want help with meals or training today?"
+
+    def reply(self, messages):
+        return call("Reply", reply=self.reply_text, suggestions=["Plan my meals"])
+
     def recommendation(self, messages):
         return call("submit_result", headline="Your answer", summary="Here is what fits your goals.", key_points=["Eat well"])
 
@@ -400,10 +405,24 @@ async def test_passing_rescaled_plan_is_accepted_when_the_planner_runs_out_of_st
     assert final["recommendation"]["key_points"][0].startswith("For your height, a healthy weight is")
 
 
-async def test_greeting_is_answered_without_agents(run):
-    final, events, _ = await run(veg_world(), "hi", profile=VEG_PROFILE)
+async def test_supervisor_routes_small_talk_to_a_checked_reply(run):
+    w = veg_world()
+    w.supervisor_script = ["respond"]
+    final, _, _ = await run(w, "how are you doing today?", profile=VEG_PROFILE)
     assert final["status"] == "answered" and not final.get("agent_runs")
-    assert final["recommendation"]["summary"].startswith("Hi") and final["recommendation"]["follow_up_questions"]
+    assert final["recommendation"]["summary"] == w.reply_text
+
+
+async def test_unsafe_reply_falls_back_and_real_requests_are_not_small_talk(run):
+    w = veg_world()
+    w.supervisor_script = ["respond"]
+    w.reply_text = "Great! Eat 2500 kcal and 120 g protein a day."  # numbers are not allowed in a reply
+    final, _, _ = await run(w, "hey there", profile=VEG_PROFILE)
+    assert "2500" not in final["recommendation"]["summary"] and "I can plan meals" in final["recommendation"]["summary"]
+    w2 = veg_world()
+    w2.supervisor_script = ["respond", "health_assessment", "meal_planning", "validation", "recommendation"]
+    final2, _, _ = await run(w2, "hi! plan a day of meals for me", profile=VEG_PROFILE, thread="t-real")
+    assert final2["decisions"][0]["next"] != "respond" and final2["recommendation"]["plan"]
 
 
 async def test_offering_a_plan_is_not_a_false_plan_claim_when_none_was_asked_for(run):

@@ -22,7 +22,7 @@ from nip.tools.energy import escalation_triggers, required_missing
 log = structlog.get_logger("nip.supervisor")
 
 AgentName = Literal["health_assessment", "nutrition_knowledge", "meal_planning", "workout_planning", "validation",
-                    "recommendation", "clarify"]
+                    "recommendation", "clarify", "respond"]
 
 
 class Decision(BaseModel):
@@ -45,6 +45,8 @@ Specialists:
 - validation: independently checks a meal plan; required before a plan is shown.
 - recommendation: writes the final personalised answer from everything gathered. Ends the turn.
 - clarify: ask the user for missing essentials. Ends the turn.
+- respond: a short conversational reply, with no specialist work, for greetings, small talk, thanks,
+  questions about you, or anything outside nutrition and fitness. Ends the turn.
 
 Choose only what this request needs: a factual question may need just knowledge then recommendation; a
 meal swap may need planning, validation, recommendation. Keep objectives short. Never route to a step whose
@@ -163,6 +165,14 @@ def _enforce_once(state: dict, nxt: str) -> tuple[str, str | None]:
         return "recommendation", BUDGET_PREFIX + "token budget reached; answering with what is available"
     profile = _profile(state)
     health_tries = _ran_this_turn(state, "health_assessment")
+    if nxt == "respond":
+        if state.get("plan_requested") or state.get("workout_requested") or state.get("turn_steps", 0) > 1 \
+                or (state.get("agent_runs") and any(r.get("turn") == state.get("turn") for r in state["agent_runs"])):
+            # a real request (or work already done this turn) is not small talk: do the work it needs
+            target = "meal_planning" if state.get("plan_requested") else \
+                "workout_planning" if state.get("workout_requested") else "recommendation"
+            return target, "the message asks for nutrition or fitness help, not small talk"
+        return "respond", None
     if nxt == "clarify" and not state.get("pending_questions"):
         if health:
             return "recommendation", "nothing essential is missing; no need to ask the user"
