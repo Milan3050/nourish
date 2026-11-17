@@ -3,12 +3,12 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { CalendarDays, ClipboardList, History, MessageSquare, Plus, Soup, Target, UserRound } from 'lucide-react'
 import clsx from 'clsx'
 import { api, session } from './lib/api'
-import { EMPTY_PROFILE, type AgentKey, type Health, type Profile } from './lib/types'
+import { AGENT_BY_NAME, AGENT_LABEL, EMPTY_PROFILE, type AgentEvent, type AgentKey, type Health, type Profile } from './lib/types'
 import { useChat, type AgentView, type Flight } from './lib/useChat'
 import { Thali } from './components/Thali'
 import { ActivityLog } from './components/ActivityLog'
 import { Chat } from './components/Chat'
-import { EvidencePanel, PlanPanel, TargetsPanel, WorkoutPanel } from './components/Panels'
+import { EvidencePanel, PlanPanel, TargetsPanel, WorkoutPanel, type GuidelineSearch } from './components/Panels'
 import { Onboarding } from './components/Onboarding'
 import { PlanActions } from './components/PlanActions'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -96,6 +96,21 @@ function useTabs(tab: Tab, setTab: (t: Tab) => void) {
   return { refs, onKeyDown }
 }
 
+/** Guideline searches from this turn's tool events, paired with what each returned. */
+function guidelineSearches(events: AgentEvent[]): GuidelineSearch[] {
+  const out: GuidelineSearch[] = []
+  for (const e of events) {
+    if (e.type === 'tool_call' && e.tool === 'search_guidelines') {
+      const args = (e.args ?? {}) as { query?: string; _preview?: string }
+      out.push({ agent: AGENT_LABEL[AGENT_BY_NAME[e.agent ?? ''] as AgentKey] ?? e.agent ?? '', query: args.query ?? args._preview ?? '', found: '…' })
+    } else if (e.type === 'tool_result' && e.tool === 'search_guidelines' && out.length) {
+      const titles = [...(e.preview ?? '').matchAll(/"title": "([^"]+)"/g)].map(m => m[1])
+      out[out.length - 1].found = titles.length ? titles.slice(0, 3).join('; ') : 'results returned'
+    }
+  }
+  return out
+}
+
 type Pane = 'chat' | 'work'
 type Chat = ReturnType<typeof useChat>
 
@@ -174,7 +189,8 @@ function Workspace({ chat, profile, name }: { chat: Chat; profile: Profile; name
                   <WorkoutPanel workout={workout} requested={!!s && !workout && chat.messages.some(m => /workout|exercise|training/i.test(m.text) && m.role === 'user')} />
                 </>}
                 {tab === 'targets' && <TargetsPanel health={s?.health ?? null} />}
-                {tab === 'sources' && <EvidencePanel evidence={s?.evidence ?? []} />}
+                {tab === 'sources' && <EvidencePanel evidence={s?.evidence ?? []} cited={s?.recommendation?.citations ?? []}
+                  searches={guidelineSearches(chat.events)} />}
               </motion.div>
             </AnimatePresence>
           </section>

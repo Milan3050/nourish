@@ -4,7 +4,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { MacroRing } from './MacroRing'
 import { WorkoutView } from './WorkoutView'
-import type { Evidence, Health, MealPlan, Validation, Workout } from '../lib/types'
+import type { Citation, Evidence, Health, MealPlan, Validation, Workout } from '../lib/types'
 
 const SLOT: Record<string, string> = {
   breakfast: 'Breakfast', mid_morning: 'Mid-morning', lunch: 'Lunch', snack: 'Snack', dinner: 'Dinner', bedtime: 'Bedtime',
@@ -144,10 +144,57 @@ export function TargetsPanel({ health }: { health: Health | null }) {
   )
 }
 
-export function EvidencePanel({ evidence }: { evidence: Evidence[] }) {
-  const [open, setOpen] = useState<string | null>(null)
-  if (!evidence.length) return <Empty title="No sources looked up yet" body='Ask a question like "Is creatine safe with kidney disease?" to see cited guidance.' />
+export interface GuidelineSearch { agent: string; query: string; found: string }
+
+function CitationItem({ c, open, setOpen }: { c: Citation; open: string | null; setOpen: (id: string | null) => void }) {
   return (
+    <motion.li layout className="rounded-xl border border-line bg-plum text-sm">
+      <button className="w-full text-left px-3 py-2 flex items-start gap-2" aria-expanded={open === c.chunk_id}
+        onClick={() => setOpen(open === c.chunk_id ? null : c.chunk_id)}>
+        <span className="flex-1">{c.title}<span className="block text-xs text-dim">{c.source}</span></span>
+        <ChevronDown size={14} className={clsx('mt-1 text-dim transition-transform', open === c.chunk_id && 'rotate-180')} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open === c.chunk_id && (
+          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
+            <p className="px-3 pb-2 text-mist">{c.snippet}</p>
+            {c.url && <a href={c.url} target="_blank" rel="noreferrer" className="px-3 pb-3 inline-flex items-center gap-1 text-xs text-turmeric hover:underline">Read the original source <ExternalLink size={12} /></a>}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.li>
+  )
+}
+
+/** Everything the agents looked up in the local guideline library this turn: passages the answer cited,
+ * the Knowledge agent's answers, and every search any agent ran (with what it returned). */
+export function EvidencePanel({ evidence, cited = [], searches = [] }: {
+  evidence: Evidence[]; cited?: Citation[]; searches?: GuidelineSearch[]
+}) {
+  const [open, setOpen] = useState<string | null>(null)
+  const note = <p className="text-xs text-dim">Searched in the project's vetted guideline library (34 curated summaries of WHO, ICMR-NIN, DGA, NIH and other sources, indexed locally). No web search; source links are for you to read the originals.</p>
+  if (!evidence.length && !cited.length && !searches.length)
+    return <div className="space-y-2"><Empty title="Nothing looked up yet" body="When an agent searches the guideline library for your request, the passages it found and cited appear here." />{note}</div>
+  return (
+    <div className="space-y-5">
+      {note}
+      {cited.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="font-display font-medium m-0">Cited in the answer</h3>
+          <ul className="space-y-1.5 list-none p-0">{cited.map(c => <CitationItem key={c.chunk_id} c={c} open={open} setOpen={setOpen} />)}</ul>
+        </section>
+      )}
+      {searches.length > 0 && (
+        <section className="space-y-1.5">
+          <h3 className="font-display font-medium m-0">Searches this turn</h3>
+          <ul className="space-y-1 list-none p-0 text-sm">
+            {searches.map((q, i) => (
+              <li key={i} className="text-mist"><span className="text-dim">{q.agent}:</span> “{q.query}” <span className="text-xs text-dim">→ {q.found}</span></li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {evidence.length > 0 && <h3 className="font-display font-medium m-0">Knowledge agent answers</h3>}
     <ul className="space-y-4">
       {evidence.map(e => (
         <li key={e.question} className="space-y-2">
@@ -175,6 +222,7 @@ export function EvidencePanel({ evidence }: { evidence: Evidence[] }) {
         </li>
       ))}
     </ul>
+    </div>
   )
 }
 
